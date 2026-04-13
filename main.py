@@ -572,9 +572,23 @@ def _gmail_token_db_set(token, refresh_token):
 
 def get_gmail_creds():
     data = _gmail_token_db_get()
-    if not data:
+    if not data or not data.get("refresh_token"):
         return None
-    creds = Credentials(
+    # Always refresh to ensure a valid access token
+    try:
+        resp = httpx.post("https://oauth2.googleapis.com/token", data={
+            "client_id": GMAIL_CLIENT_ID,
+            "client_secret": GMAIL_CLIENT_SECRET,
+            "refresh_token": data["refresh_token"],
+            "grant_type": "refresh_token",
+        })
+        if resp.status_code == 200:
+            new_token = resp.json().get("access_token")
+            _gmail_token_db_set(new_token, data["refresh_token"])
+            data["token"] = new_token
+    except Exception:
+        pass
+    return Credentials(
         token=data.get("token"),
         refresh_token=data.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
@@ -582,10 +596,6 @@ def get_gmail_creds():
         client_secret=GMAIL_CLIENT_SECRET,
         scopes=GMAIL_SCOPES,
     )
-    if creds.expired and creds.refresh_token:
-        creds.refresh(GRequest())
-        _gmail_token_db_set(creds.token, creds.refresh_token)
-    return creds
 
 @app.get("/api/gmail/status")
 def gmail_status():
