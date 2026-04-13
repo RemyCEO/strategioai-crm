@@ -712,10 +712,11 @@ async def gmail_send(data: GmailSend):
     if not creds:
         raise HTTPException(400, "Gmail ikke koblet til")
     service = build("gmail", "v1", credentials=creds)
-    msg = MIMEMultipart("alternative")
-    msg["to"] = data.to
-    msg["subject"] = data.subject
-    msg.attach(MIMEText(data.body, "plain"))
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["To"] = data.to
+    msg["Subject"] = data.subject
+    msg.set_content(data.body)
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
     if data.contact_id:
