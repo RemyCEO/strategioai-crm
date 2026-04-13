@@ -926,13 +926,15 @@ async function sendGmail() {
     contact_id: document.getElementById('g-contact-id').value || null,
   };
   if (!payload.to || !payload.subject) return alert('Til og emne er påkrevd');
-  const res = await api('/api/gmail/send', 'POST', payload);
-  if (res?.ok) {
+  const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
+  const r = await fetch(API + '/api/gmail/send', opts);
+  const data = await r.json().catch(() => ({}));
+  if (r.ok && data.ok) {
     closeModal();
     alert('E-post sendt!');
     if (activePanelId) openPanel(activePanelId, 'gmail');
   } else {
-    alert('Feil ved sending. Er Gmail koblet til?');
+    alert('Feil ved sending: ' + (data.detail || r.status));
   }
 }
 
