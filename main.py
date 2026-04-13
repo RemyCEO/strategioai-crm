@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import httpx
@@ -8,8 +8,16 @@ import psycopg2
 import psycopg2.extras
 import uuid
 import stripe
+import base64
+import json
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
 from contextlib import contextmanager
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GRequest
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
 
 load_dotenv()
 
@@ -20,6 +28,11 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 DATABASE_URL = os.getenv("DATABASE_URL")
+GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
+GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
+GMAIL_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/api/gmail/callback")
+GMAIL_TOKEN_FILE = os.path.join(os.path.dirname(__file__), "gmail_token.json")
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -512,6 +525,120 @@ async def stripe_webhook(request: Request):
                             (str(uuid.uuid4()), row["id"], None, "abonnement", "Stripe-abonnement kansellert", now)
                         )
 
+    return {"ok": True}
+
+
+# --- Gmail ---
+
+def gmail_client_config():
+    return {
+        "web": {
+            "client_id": GMAIL_CLIENT_ID,
+            "client_secret": GMAIL_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [GMAIL_REDIRECT_URI],
+        }
+    }
+
+def get_gmail_creds():
+    if not os.path.exists(GMAIL_TOKEN_FILE):
+        return None
+    with open(GMAIL_TOKEN_FILE) as f:
+        data = json.load(f)
+    creds = Credentials(
+        token=data.get("token"),
+        refresh_token=data.get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GMAIL_CLIENT_ID,
+        client_secret=GMAIL_CLIENT_SECRET,
+        scopes=GMAIL_SCOPES,
+    )
+    if creds.expired and creds.refresh_token:
+        creds.refresh(GRequest())
+        with open(GMAIL_TOKEN_FILE, "w") as f:
+            json.dump({"token": creds.token, "refresh_token": creds.refresh_token}, f)
+    return creds
+
+@app.get("/api/gmail/status")
+def gmail_status():
+    if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET:
+        return {"connected": False, "reason": "no_credentials"}
+    creds = get_gmail_creds()
+    if creds and (creds.valid or creds.refresh_token):
+        return {"connected": True}
+    return {"connected": False, "reason": "not_authorized"}
+
+@app.get("/api/gmail/auth")
+def gmail_auth():
+    if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET:
+        raise HTTPException(400, "GMAIL_CLIENT_ID og GMAIL_CLIENT_SECRET mangler i .env")
+    flow = Flow.from_client_config(gmail_client_config(), scopes=GMAIL_SCOPES, redirect_uri=GMAIL_REDIRECT_URI)
+    auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+    return {"url": auth_url}
+
+@app.get("/api/gmail/callback")
+def gmail_callback(code: str):
+    flow = Flow.from_client_config(gmail_client_config(), scopes=GMAIL_SCOPES, redirect_uri=GMAIL_REDIRECT_URI)
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+    with open(GMAIL_TOKEN_FILE, "w") as f:
+        json.dump({"token": creds.token, "refresh_token": creds.refresh_token}, f)
+    return RedirectResponse("/?gmail=connected")
+
+@app.get("/api/gmail/threads")
+def gmail_threads(email: str):
+    creds = get_gmail_creds()
+    if not creds:
+        raise HTTPException(400, "Gmail ikke koblet til")
+    service = build("gmail", "v1", credentials=creds)
+    q = f"to:{email} OR from:{email}"
+    res = service.users().messages().list(userId="me", q=q, maxResults=15).execute()
+    messages = res.get("messages", [])
+    threads = []
+    for msg in messages:
+        m = service.users().messages().get(
+            userId="me", id=msg["id"], format="metadata",
+            metadataHeaders=["Subject", "From", "To", "Date"]
+        ).execute()
+        hdrs = {h["name"]: h["value"] for h in m["payload"]["headers"]}
+        threads.append({
+            "id": msg["id"],
+            "subject": hdrs.get("Subject", "(ingen emne)"),
+            "from": hdrs.get("From", ""),
+            "to": hdrs.get("To", ""),
+            "date": hdrs.get("Date", ""),
+            "snippet": m.get("snippet", ""),
+        })
+    return threads
+
+class GmailSend(BaseModel):
+    to: str
+    subject: str
+    body: str
+    contact_id: str = None
+
+@app.post("/api/gmail/send")
+async def gmail_send(data: GmailSend):
+    creds = get_gmail_creds()
+    if not creds:
+        raise HTTPException(400, "Gmail ikke koblet til")
+    service = build("gmail", "v1", credentials=creds)
+    msg = MIMEMultipart("alternative")
+    msg["to"] = data.to
+    msg["subject"] = data.subject
+    msg.attach(MIMEText(data.body, "plain"))
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    service.users().messages().send(userId="me", body={"raw": raw}).execute()
+    if data.contact_id:
+        new_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO activities (id, contact_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s)",
+                (new_id, data.contact_id, "email", f"Gmail sendt til {data.to} — {data.subject}", now)
+            )
     return {"ok": True}
 
 

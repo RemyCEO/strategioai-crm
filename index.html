@@ -178,6 +178,7 @@ tbody td { padding:12px 14px; font-size:13px; }
     <div class="nav-item" onclick="showView('deals')"><span class="icon">💼</span> Deals</div>
     <div class="nav-item" onclick="showView('pipeline')"><span class="icon">🔀</span> Pipeline</div>
     <div class="nav-item" onclick="showView('stripe')"><span class="icon">💳</span> Stripe</div>
+    <div class="nav-item" id="nav-gmail" onclick="showView('gmail')"><span class="icon">📧</span> Gmail <span id="gmail-dot" style="display:none;width:7px;height:7px;background:#22c55e;border-radius:50%;margin-left:auto"></span></div>
   </nav>
 </div>
 
@@ -307,6 +308,19 @@ tbody td { padding:12px 14px; font-size:13px; }
     </div>
   </div>
 
+  <!-- Compose Gmail -->
+  <div class="modal" id="modal-gmail" style="display:none;width:520px">
+    <h2>Skriv e-post</h2>
+    <div class="form-group"><label>Til</label><input id="g-to" placeholder="kunde@firma.no"></div>
+    <div class="form-group"><label>Emne</label><input id="g-subject" placeholder="Tilbud fra StrategioAI"></div>
+    <div class="form-group"><label>Melding</label><textarea id="g-body" style="min-height:160px" placeholder="Hei..."></textarea></div>
+    <input type="hidden" id="g-contact-id">
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
+      <button class="btn btn-green" onclick="sendGmail()">Send via Gmail</button>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -320,8 +334,8 @@ let panelTab = 'info';
 function showView(view) {
   currentView = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','contacts','deals','pipeline','stripe'].indexOf(view)].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder' };
+  document.querySelectorAll('.nav-item')[['dashboard','contacts','deals','pipeline','stripe','gmail'].indexOf(view)].classList.add('active');
+  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail' };
   document.getElementById('view-title').textContent = titles[view];
   closePanel();
   render();
@@ -339,6 +353,7 @@ async function render() {
   else if (currentView === 'deals') { actions.innerHTML=''; await renderDeals(); }
   else if (currentView === 'pipeline') { actions.innerHTML=''; await renderPipeline(); }
   else if (currentView === 'stripe') { actions.innerHTML=`<button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer alle til CRM</button>`; await renderStripe(); }
+  else if (currentView === 'gmail') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openComposeGmail()">✉️ Skriv e-post</button>`; await renderGmail(); }
 }
 
 // --- DASHBOARD ---
@@ -530,17 +545,27 @@ async function renderPanelTab(c) {
       </div>`;
   } else if (panelTab === 'stripe') {
     tabContent = `<div id="stripe-panel-content"><div style="color:var(--muted);font-size:13px">Laster Stripe-data...</div></div>`;
+  } else if (panelTab === 'gmail') {
+    tabContent = `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn btn-green btn-sm" onclick="openComposeGmail('${c.email||''}','${id}')">✉️ Skriv e-post</button>
+      </div>
+      <div id="gmail-panel-content"><div style="color:var(--muted);font-size:13px">Laster e-poster...</div></div>`;
   }
 
   document.getElementById('panel-body').innerHTML = `
     <div class="tabs">
       <div class="tab ${panelTab==='info'?'active':''}" onclick="panelTab='info';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')})">Info & Aktivitet</div>
       <div class="tab ${panelTab==='stripe'?'active':''}" onclick="panelTab='stripe';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')});loadStripePanel('${c.email||''}')">💳 Stripe</div>
+      <div class="tab ${panelTab==='gmail'?'active':''}" onclick="panelTab='gmail';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')})">📧 Gmail</div>
     </div>
     ${tabContent}`;
 
   if (panelTab === 'stripe' && c.email) {
     loadStripePanel(c.email);
+  }
+  if (panelTab === 'gmail') {
+    loadGmailPanel(c.email || '', id);
   }
 }
 
@@ -771,6 +796,106 @@ async function deleteContact(id) {
   render();
 }
 
+// --- GMAIL ---
+let gmailConnected = false;
+
+async function checkGmailStatus() {
+  const s = await api('/api/gmail/status');
+  gmailConnected = s && s.connected;
+  const dot = document.getElementById('gmail-dot');
+  if (dot) dot.style.display = gmailConnected ? 'inline-block' : 'none';
+}
+
+async function renderGmail() {
+  const s = await api('/api/gmail/status');
+  const content = document.getElementById('content');
+  if (!s || !s.connected) {
+    const reason = s?.reason === 'no_credentials'
+      ? `<p style="color:var(--muted);font-size:13px;margin-bottom:16px">Legg til <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">GMAIL_CLIENT_ID</code> og <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">GMAIL_CLIENT_SECRET</code> i <b>.env</b> filen.<br><br>Se steg nedenfor.</code></p>
+        <div style="background:var(--surface2);border-radius:8px;padding:14px 16px;font-size:12px;color:var(--muted);line-height:2">
+          1. Gå til <a href="https://console.cloud.google.com" target="_blank" style="color:var(--green)">console.cloud.google.com</a><br>
+          2. Opprett prosjekt → APIs → Gmail API → Enable<br>
+          3. Credentials → OAuth 2.0 → Web Application<br>
+          4. Redirect URI: <code style="color:#a5b4fc">http://localhost:8000/api/gmail/callback</code><br>
+          5. Kopier Client ID + Secret til .env<br>
+          6. Start CRM på nytt og koble til her
+        </div>`
+      : `<button class="btn btn-green" onclick="connectGmail()">Koble til Gmail</button>`;
+    content.innerHTML = `
+      <div style="max-width:540px;margin:60px auto;background:var(--surface);border:1.5px solid rgba(34,197,94,.3);border-radius:12px;padding:36px 40px">
+        <div style="font-size:32px;margin-bottom:12px">📧</div>
+        <h2 style="font-size:18px;font-weight:700;margin-bottom:10px">Gmail ikke koblet til</h2>
+        ${reason}
+      </div>`;
+    return;
+  }
+  content.innerHTML = `
+    <div style="max-width:560px;margin:60px auto;background:var(--surface);border:1.5px solid rgba(34,197,94,.4);border-radius:12px;padding:36px 40px;text-align:center">
+      <div style="font-size:36px;margin-bottom:12px">✅</div>
+      <h2 style="font-size:18px;font-weight:700;margin-bottom:8px">Gmail koblet til</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:24px">strategioai@strategioai.com er tilkoblet. Du kan nå sende e-post direkte fra kontaktpanelet.</p>
+      <button class="btn btn-green" onclick="openComposeGmail()">✉️ Skriv ny e-post</button>
+    </div>`;
+}
+
+async function connectGmail() {
+  const res = await api('/api/gmail/auth');
+  if (res?.url) window.location.href = res.url;
+}
+
+async function loadGmailPanel(email, contactId) {
+  const el = document.getElementById('gmail-panel-content');
+  if (!el) return;
+  if (!email) {
+    el.innerHTML = `<p style="font-size:12px;color:var(--muted)">Ingen e-post registrert på kontakten.</p>`;
+    return;
+  }
+  const threads = await api(`/api/gmail/threads?email=${encodeURIComponent(email)}`);
+  if (!threads || threads === null) {
+    el.innerHTML = `<p style="font-size:12px;color:var(--muted)">Gmail ikke koblet til. <a href="#" onclick="showView('gmail')" style="color:var(--green)">Koble til →</a></p>`;
+    return;
+  }
+  if (threads.length === 0) {
+    el.innerHTML = `<p style="font-size:12px;color:var(--muted)">Ingen e-poster funnet med ${email}</p>`;
+    return;
+  }
+  el.innerHTML = threads.map(t => `
+    <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="font-size:13px;font-weight:600;flex:1;margin-right:8px">${t.subject}</div>
+        <div style="font-size:10px;color:var(--muted);white-space:nowrap">${t.date.split(' ').slice(1,4).join(' ')}</div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${t.from}</div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:4px;line-height:1.5">${t.snippet.substring(0,120)}…</div>
+    </div>`).join('');
+}
+
+function openComposeGmail(to='', contactId='') {
+  document.getElementById('g-to').value = to;
+  document.getElementById('g-subject').value = '';
+  document.getElementById('g-body').value = '';
+  document.getElementById('g-contact-id').value = contactId;
+  showModal('modal-gmail');
+}
+
+async function sendGmail() {
+  const payload = {
+    to: document.getElementById('g-to').value.trim(),
+    subject: document.getElementById('g-subject').value.trim(),
+    body: document.getElementById('g-body').value.trim(),
+    contact_id: document.getElementById('g-contact-id').value || null,
+  };
+  if (!payload.to || !payload.subject) return alert('Til og emne er påkrevd');
+  const res = await api('/api/gmail/send', 'POST', payload);
+  if (res?.ok) {
+    closeModal();
+    alert('E-post sendt!');
+    if (activePanelId) openPanel(activePanelId, 'gmail');
+  } else {
+    alert('Feil ved sending. Er Gmail koblet til?');
+  }
+}
+
 // --- UTILS ---
 async function api(url, method='GET', body=null) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -793,6 +918,13 @@ function fmtDate(iso) {
 
 // Boot — sjekk setup først
 async function boot() {
+  checkGmailStatus();
+  // Sjekk om returnert fra Gmail OAuth
+  if (window.location.search.includes('gmail=connected')) {
+    history.replaceState({}, '', '/');
+    showView('gmail');
+    return;
+  }
   try {
     const h = await api('/api/ping');
     if (h && h.setup) {
