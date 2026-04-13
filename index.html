@@ -442,27 +442,44 @@ async function renderContacts() {
 // --- DEALS ---
 async function renderDeals() {
   const deals = await api('/api/deals');
-  document.getElementById('content').innerHTML = `
+  const vunnet = deals.filter(d => d.status === 'vunnet');
+  const tilbud = deals.filter(d => d.status !== 'vunnet');
+
+  function dealTable(rows) {
+    if (rows.length === 0) return `<div style="padding:16px;font-size:12px;color:var(--muted)">Ingen</div>`;
+    return `<table>
+      <thead><tr><th>Tittel</th><th>Kontakt</th><th>Kategori</th><th>Pakke</th><th>Verdi</th><th>Status</th><th>Dato</th></tr></thead>
+      <tbody>
+        ${rows.map(d => `
+          <tr onclick="openPanel('${d.contact_id}')">
+            <td><strong>${d.title}</strong></td>
+            <td>${d.contacts?.name || '—'}</td>
+            <td>${d.type === 'subscription'
+              ? `<span class="badge active" style="font-size:10px">🔁 ${fmt(d.recurring_amount)}/mnd</span>`
+              : `<span style="font-size:11px;color:var(--muted)">Éngang</span>`}</td>
+            <td style="color:var(--muted);font-size:12px">${d.package || '—'}</td>
+            <td style="color:var(--green);font-weight:600">${fmt(d.value)}</td>
+            <td><span class="badge ${d.status}">${d.status}</span></td>
+            <td style="color:var(--muted)">${fmtDate(d.created_at)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  document.getElementById('content').innerHTML = deals.length === 0
+    ? `<div class="table-wrap"><div class="empty"><div class="emoji">💼</div><p>Ingen deals ennå</p></div></div>`
+    : `
+    <div class="table-wrap" style="margin-bottom:24px">
+      <div class="table-header">
+        <span style="font-size:13px;font-weight:600">Vunnet <span style="color:var(--green)">(${vunnet.length})</span></span>
+      </div>
+      ${dealTable(vunnet)}
+    </div>
     <div class="table-wrap">
-      <div class="table-header"><span style="font-size:13px;font-weight:600">Alle deals</span></div>
-      ${deals.length === 0 ? `<div class="empty"><div class="emoji">💼</div><p>Ingen deals ennå</p></div>` : `
-      <table>
-        <thead><tr><th>Tittel</th><th>Kontakt</th><th>Kategori</th><th>Pakke</th><th>Verdi</th><th>Status</th><th>Dato</th></tr></thead>
-        <tbody>
-          ${deals.map(d => `
-            <tr onclick="openPanel('${d.contact_id}')">
-              <td><strong>${d.title}</strong></td>
-              <td>${d.contacts?.name || '—'}</td>
-              <td>${d.type === 'subscription'
-                ? `<span class="badge active" style="font-size:10px">🔁 ${fmt(d.recurring_amount)}/mnd</span>`
-                : `<span style="font-size:11px;color:var(--muted)">Éngang</span>`}</td>
-              <td style="color:var(--muted);font-size:12px">${d.package || '—'}</td>
-              <td style="color:var(--green);font-weight:600">${fmt(d.value)}</td>
-              <td><span class="badge ${d.status}">${d.status}</span></td>
-              <td style="color:var(--muted)">${fmtDate(d.created_at)}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`}
+      <div class="table-header">
+        <span style="font-size:13px;font-weight:600">Tilbud / Pipeline <span style="color:#60a5fa">(${tilbud.length})</span></span>
+      </div>
+      ${dealTable(tilbud)}
     </div>`;
 }
 
