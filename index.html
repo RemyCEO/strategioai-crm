@@ -1067,6 +1067,10 @@ async function renderOrdrebekreftelser() {
 }
 
 function sendMalDirekte(t) {
+  if (!gmailConnected) {
+    if (confirm('Gmail er ikke koblet til. Vil du gå til Gmail-siden for å koble til?')) showView('gmail');
+    return;
+  }
   document.getElementById('g-to').value = '';
   document.getElementById('g-subject').value = t.subject;
   document.getElementById('g-body').value = t.body;
@@ -1102,6 +1106,7 @@ function redigerMal(t) {
   _redigerMalId = t.id;
   _nyMalNavn = t.name;
   _nyMalCategory = t.category || 'email';
+  document.getElementById('nm-title').textContent = 'Rediger mal';
   document.getElementById('nm-subject').value = t.subject;
   document.getElementById('nm-body').value = t.body;
   document.getElementById('nm-name').value = t.name;
@@ -1173,6 +1178,7 @@ function openNyMal(category) {
   _redigerMalId = null;
   _nyMalCategory = category || 'email';
   _nyMalNavn = '';
+  document.getElementById('nm-title').textContent = 'Ny mal';
   document.getElementById('nm-name').value = '';
   document.getElementById('nm-subject').value = '';
   document.getElementById('nm-body').value = '';
