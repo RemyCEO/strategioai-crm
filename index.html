@@ -923,7 +923,7 @@ async function sendGmail() {
     to: document.getElementById('g-to').value.trim(),
     subject: document.getElementById('g-subject').value.trim(),
     body: document.getElementById('g-body').value.trim(),
-    contact_id: document.getElementById('g-contact-id').value || null,
+    contact_id: document.getElementById('g-contact-id').value || "",
   };
   if (!payload.to || !payload.subject) return alert('Til og emne er påkrevd');
   const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
