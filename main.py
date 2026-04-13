@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import httpx
@@ -12,6 +13,7 @@ import base64
 import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from google.oauth2.credentials import Credentials
@@ -22,6 +24,10 @@ from googleapiclient.discovery import build
 load_dotenv()
 
 app = FastAPI()
+
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+os.makedirs(_static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -103,28 +109,39 @@ def init_db():
                 name TEXT NOT NULL,
                 subject TEXT NOT NULL,
                 body TEXT NOT NULL,
+                category TEXT DEFAULT 'email',
+                image_filename TEXT,
                 created_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
             );
         """)
-        # Seed templates fra gmail_templates.json hvis tabellen er tom
-        cur.execute("SELECT COUNT(*) FROM email_templates")
-        count = cur.fetchone()["count"]
-        if count == 0:
-            templates_path = os.path.join(os.path.dirname(__file__), "gmail_templates.json")
-            if os.path.exists(templates_path):
-                with open(templates_path, encoding="utf-8") as f:
-                    raw = json.load(f)
-                seen_subjects = set()
-                skip_subjects = {"Laras Kaker admin"}
-                for t in raw:
-                    subj = t["subject"]
-                    if subj in skip_subjects or subj in seen_subjects:
-                        continue
-                    seen_subjects.add(subj)
-                    cur.execute(
-                        "INSERT INTO email_templates (id, name, subject, body) VALUES (%s,%s,%s,%s)",
-                        (str(uuid.uuid4()), subj, subj, t["body"])
-                    )
+        # Migrasjon: legg til category og image_filename hvis de mangler
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='email_templates' AND column_name='category') THEN
+                    ALTER TABLE email_templates ADD COLUMN category TEXT DEFAULT 'email';
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='email_templates' AND column_name='image_filename') THEN
+                    ALTER TABLE email_templates ADD COLUMN image_filename TEXT;
+                END IF;
+            END$$;
+        """)
+        # Seed templates fra gmail_templates.json (insert kun de som ikke finnes)
+        templates_path = os.path.join(os.path.dirname(__file__), "gmail_templates.json")
+        if os.path.exists(templates_path):
+            with open(templates_path, encoding="utf-8") as f:
+                raw = json.load(f)
+            cur.execute("SELECT name FROM email_templates")
+            existing_names = {r["name"] for r in cur.fetchall()}
+            skip_subjects = {"Laras Kaker admin"}
+            for t in raw:
+                name = t.get("name", t["subject"])
+                if name in skip_subjects or name in existing_names:
+                    continue
+                cur.execute(
+                    "INSERT INTO email_templates (id, name, subject, body, category, image_filename) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (str(uuid.uuid4()), name, t["subject"], t["body"], t.get("category", "email"), t.get("image_filename"))
+                )
         # Migrasjon: legg til kolonner hvis de mangler
         cur.execute("""
             DO $$
@@ -201,6 +218,8 @@ class EmailTemplate(BaseModel):
     name: str
     subject: str
     body: str
+    category: str = "email"
+    image_filename: str = None
 
 
 # --- Frontend ---
@@ -738,6 +757,7 @@ class GmailSend(BaseModel):
     subject: str
     body: str
     contact_id: str = ""
+    image_filename: str = None
 
 @app.post("/api/gmail/send")
 async def gmail_send(data: GmailSend):
@@ -745,11 +765,37 @@ async def gmail_send(data: GmailSend):
     if not creds:
         raise HTTPException(400, "Gmail ikke koblet til")
     service = build("gmail", "v1", credentials=creds)
-    from email.message import EmailMessage
-    msg = EmailMessage()
-    msg["To"] = data.to
-    msg["Subject"] = data.subject
-    msg.set_content(data.body, charset="utf-8")
+
+    if data.image_filename:
+        img_path = os.path.join(os.path.dirname(__file__), "static", os.path.basename(data.image_filename))
+        if os.path.exists(img_path):
+            with open(img_path, "rb") as f:
+                img_data = f.read()
+            html_body = "<pre style='font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap'>" + data.body.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;") + "</pre>"
+            html_body += '<br><img src="cid:strategio_img" style="max-width:600px;width:100%">'
+            msg = MIMEMultipart("related")
+            msg["To"] = data.to
+            msg["Subject"] = data.subject
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(data.body, "plain", "utf-8"))
+            alt.attach(MIMEText(html_body, "html", "utf-8"))
+            msg.attach(alt)
+            img_mime = MIMEImage(img_data)
+            img_mime.add_header("Content-ID", "<strategio_img>")
+            img_mime.add_header("Content-Disposition", "inline")
+            msg.attach(img_mime)
+        else:
+            msg = MIMEMultipart("alternative")
+            msg["To"] = data.to
+            msg["Subject"] = data.subject
+            msg.attach(MIMEText(data.body, "plain", "utf-8"))
+    else:
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg["To"] = data.to
+        msg["Subject"] = data.subject
+        msg.set_content(data.body, charset="utf-8")
+
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
     if data.contact_id:
@@ -767,10 +813,13 @@ async def gmail_send(data: GmailSend):
 # --- Email Templates ---
 
 @app.get("/api/email-templates")
-def get_email_templates():
+def get_email_templates(category: str = None):
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM email_templates ORDER BY created_at ASC")
+        if category:
+            cur.execute("SELECT * FROM email_templates WHERE category=%s ORDER BY created_at ASC", (category,))
+        else:
+            cur.execute("SELECT * FROM email_templates ORDER BY created_at ASC")
         rows = cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -781,8 +830,19 @@ def create_email_template(t: EmailTemplate):
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO email_templates (id, name, subject, body, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *",
-            (new_id, t.name, t.subject, t.body, now)
+            "INSERT INTO email_templates (id, name, subject, body, category, image_filename, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (new_id, t.name, t.subject, t.body, t.category, t.image_filename, now)
+        )
+        row = cur.fetchone()
+    return dict(row)
+
+@app.put("/api/email-templates/{id}")
+def update_email_template(id: str, t: EmailTemplate):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE email_templates SET name=%s, subject=%s, body=%s, category=%s, image_filename=%s WHERE id=%s RETURNING *",
+            (t.name, t.subject, t.body, t.category, t.image_filename, id)
         )
         row = cur.fetchone()
     return dict(row)
@@ -793,6 +853,20 @@ def delete_email_template(id: str):
         cur = conn.cursor()
         cur.execute("DELETE FROM email_templates WHERE id=%s", (id,))
     return {"ok": True}
+
+
+@app.post("/api/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    import imghdr
+    data = await file.read()
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".png"
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        ext = ".png"
+    filename = str(uuid.uuid4()) + ext
+    path = os.path.join(os.path.dirname(__file__), "static", filename)
+    with open(path, "wb") as f:
+        f.write(data)
+    return {"filename": filename}
 
 
 # --- Init ---

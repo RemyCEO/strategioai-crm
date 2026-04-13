@@ -180,6 +180,7 @@ tbody td { padding:12px 14px; font-size:13px; }
     <div class="nav-item" onclick="showView('stripe')"><span class="icon">💳</span> Stripe</div>
     <div class="nav-item" id="nav-gmail" onclick="showView('gmail')"><span class="icon">📧</span> Gmail <span id="gmail-dot" style="display:none;width:7px;height:7px;background:#22c55e;border-radius:50%;margin-left:auto"></span></div>
     <div class="nav-item" onclick="showView('maler')"><span class="icon">📝</span> Maler</div>
+    <div class="nav-item" onclick="showView('ordrebekreftelser')"><span class="icon">📋</span> Ordrebekreftelser</div>
   </nav>
 </div>
 
@@ -321,6 +322,11 @@ tbody td { padding:12px 14px; font-size:13px; }
     </div>
     <div class="form-group"><label>Emne</label><input id="g-subject" placeholder="Tilbud fra StrategioAI"></div>
     <div class="form-group"><label>Melding</label><textarea id="g-body" style="min-height:160px" placeholder="Hei..."></textarea></div>
+    <div id="g-image-preview" style="display:none;margin-bottom:10px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Bilde vedlagt:</div>
+      <img id="g-image-thumb" style="max-width:100%;max-height:120px;border-radius:6px;border:1px solid var(--border)">
+    </div>
+    <input type="hidden" id="g-image-filename">
     <input type="hidden" id="g-contact-id">
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
@@ -328,11 +334,26 @@ tbody td { padding:12px 14px; font-size:13px; }
     </div>
   </div>
 
-  <!-- Ny mal -->
-  <div class="modal" id="modal-ny-mal" style="display:none;width:520px">
-    <h2>Ny e-postmal</h2>
+  <!-- Ny/Rediger mal -->
+  <div class="modal" id="modal-ny-mal" style="display:none;width:560px">
+    <h2 id="nm-title">Ny mal</h2>
+    <div class="form-group"><label>Navn på malen</label><input id="nm-name" placeholder="AI Resepsjonist – Kald e-post"></div>
+    <div class="form-group"><label>Kategori</label>
+      <select id="nm-category">
+        <option value="email">📧 E-postmal</option>
+        <option value="ordrebekreftelse">📋 Ordrebekreftelse</option>
+      </select>
+    </div>
     <div class="form-group"><label>Emne</label><input id="nm-subject" placeholder="Tilbud fra StrategioAI"></div>
-    <div class="form-group"><label>Melding</label><textarea id="nm-body" style="min-height:200px" placeholder="Hei..."></textarea></div>
+    <div class="form-group"><label>Melding</label><textarea id="nm-body" style="min-height:220px" placeholder="Hei..."></textarea></div>
+    <div class="form-group">
+      <label>Bilde i e-post (valgfritt)</label>
+      <input type="file" id="nm-image" accept="image/*" onchange="previewNmImage(this)" style="color:var(--text)">
+      <div id="nm-image-preview" style="display:none;margin-top:8px">
+        <img id="nm-image-thumb" style="max-width:100%;max-height:120px;border-radius:6px;border:1px solid var(--border)">
+        <button class="btn btn-ghost btn-sm" type="button" onclick="clearNmImage()" style="margin-top:4px;color:var(--danger)">Fjern bilde</button>
+      </div>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
       <button class="btn btn-green" onclick="saveNyMal()">Lagre mal</button>
@@ -351,10 +372,11 @@ let panelTab = 'info';
 // --- NAV ---
 function showView(view) {
   currentView = view;
+  location.hash = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','maler'].indexOf(view);
+  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','maler','ordrebekreftelser'].indexOf(view);
   if (navIdx >= 0) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', maler:'E-postmaler' };
+  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
   document.getElementById('view-title').textContent = titles[view] || view;
   closePanel();
   render();
@@ -373,7 +395,8 @@ async function render() {
   else if (currentView === 'pipeline') { actions.innerHTML=''; await renderPipeline(); }
   else if (currentView === 'stripe') { actions.innerHTML=`<button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer alle til CRM</button>`; await renderStripe(); }
   else if (currentView === 'gmail') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openComposeGmail()">✉️ Skriv e-post</button>`; await renderGmail(); }
-  else if (currentView === 'maler') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal()">+ Ny mal</button>`; await renderMaler(); }
+  else if (currentView === 'maler') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('email')">+ Ny mal</button>`; await renderMaler(); }
+  else if (currentView === 'ordrebekreftelser') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('ordrebekreftelse')">+ Ny ordrebekreftelse</button>`; await renderOrdrebekreftelser(); }
 }
 
 // --- DASHBOARD ---
@@ -935,6 +958,8 @@ function openComposeGmail(to='', contactId='') {
   document.getElementById('g-subject').value = '';
   document.getElementById('g-body').value = '';
   document.getElementById('g-contact-id').value = contactId;
+  document.getElementById('g-image-filename').value = '';
+  _updateImagePreview('');
   showModal('modal-gmail');
 }
 
@@ -944,6 +969,7 @@ async function sendGmail() {
     subject: document.getElementById('g-subject').value.trim(),
     body: document.getElementById('g-body').value.trim(),
     contact_id: document.getElementById('g-contact-id').value || "",
+    image_filename: document.getElementById('g-image-filename').value || null,
   };
   if (!payload.to || !payload.subject) return alert('Til og emne er påkrevd');
   const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
@@ -960,11 +986,34 @@ async function sendGmail() {
 }
 
 // --- MALER ---
+function _malCard(t, onDelete, onCopy) {
+  const imgHtml = t.image_filename
+    ? `<img src="/static/${t.image_filename}" style="width:60px;height:40px;object-fit:cover;border-radius:4px;border:1px solid var(--border);">`
+    : `<div style="width:60px;height:40px;background:var(--surface2);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px">📝</div>`;
+  return `
+    <tr>
+      <td style="width:70px">${imgHtml}</td>
+      <td>
+        <div style="font-weight:600;margin-bottom:2px">${t.name}</div>
+        <div style="font-size:11px;color:var(--muted)">${t.subject}</div>
+      </td>
+      <td style="color:var(--muted);font-size:11px;max-width:200px">${t.body.substring(0,80).replace(/\r?\n/g,' ')}…</td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-green btn-sm" onclick="sendMalDirekte(${JSON.stringify(t).replace(/</g,'\\u003c')})">✉️ Send</button>
+          <button class="btn btn-ghost btn-sm" onclick="redigerMal(${JSON.stringify(t).replace(/</g,'\\u003c')})">✏️ Rediger</button>
+          <button class="btn btn-ghost btn-sm" onclick="${onCopy}(${JSON.stringify(t).replace(/</g,'\\u003c')})">📋 Kopier</button>
+          <button class="btn btn-danger btn-sm" onclick="${onDelete}('${t.id}')">Slett</button>
+        </div>
+      </td>
+    </tr>`;
+}
+
 async function renderMaler() {
-  const templates = await api('/api/email-templates');
+  const templates = await api('/api/email-templates?category=email');
   const content = document.getElementById('content');
   if (!templates || templates.length === 0) {
-    content.innerHTML = `<div class="empty"><div class="emoji">📝</div><p>Ingen maler ennå. Klikk "+ Ny mal" for å lage en.</p></div>`;
+    content.innerHTML = `<div class="empty"><div class="emoji">📝</div><p>Ingen e-postmaler ennå. Klikk "+ Ny mal" for å lage en.</p></div>`;
     return;
   }
   content.innerHTML = `
@@ -973,25 +1022,100 @@ async function renderMaler() {
         <span style="font-size:13px;font-weight:600">${templates.length} mal${templates.length !== 1 ? 'er' : ''}</span>
       </div>
       <table>
-        <thead><tr><th>Navn / Emne</th><th>Forhåndsvisning</th><th style="width:80px"></th></tr></thead>
-        <tbody>
-          ${templates.map(t => `
-            <tr>
-              <td><strong>${t.name}</strong></td>
-              <td style="color:var(--muted);font-size:12px">${t.body.substring(0,80).replace(/\r?\n/g,' ')}…</td>
-              <td>
-                <button class="btn btn-danger btn-sm" onclick="deleteMal('${t.id}')">Slett</button>
-              </td>
-            </tr>`).join('')}
+        <thead><tr><th style="width:70px">Bilde</th><th>Navn</th><th>Forhåndsvisning</th><th style="width:220px">Handlinger</th></tr></thead>
+        <tbody>${templates.map(t => _malCard(t,'deleteMal','kopierMal')).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+async function renderOrdrebekreftelser() {
+  const templates = await api('/api/email-templates?category=ordrebekreftelse');
+  const content = document.getElementById('content');
+  if (!templates || templates.length === 0) {
+    content.innerHTML = `<div class="empty"><div class="emoji">📋</div><p>Ingen ordrebekreftelsesmaler ennå.</p></div>`;
+    return;
+  }
+  content.innerHTML = `
+    <div style="margin-bottom:12px;padding:12px 16px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:8px;font-size:12px;color:var(--muted)">
+      💡 Fyll inn <strong>[FIRMANAVN]</strong>, <strong>[NAVN]</strong>, <strong>[DATO]</strong>, <strong>[PRIS]</strong> osv. i compose-vinduet etter å ha klikket Send.
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <span style="font-size:13px;font-weight:600">${templates.length} mal${templates.length !== 1 ? 'er' : ''}</span>
+      </div>
+      <table>
+        <thead><tr><th>Navn</th><th>Forhåndsvisning</th><th style="width:220px">Handlinger</th></tr></thead>
+        <tbody>${templates.map(t => `
+          <tr>
+            <td>
+              <div style="font-weight:600;margin-bottom:2px">${t.name}</div>
+              <div style="font-size:11px;color:var(--muted)">${t.subject}</div>
+            </td>
+            <td style="color:var(--muted);font-size:11px;max-width:220px">${t.body.substring(0,80).replace(/\r?\n/g,' ')}…</td>
+            <td>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-green btn-sm" onclick="sendMalDirekte(${JSON.stringify(t).replace(/</g,'\\u003c')})">✉️ Send</button>
+                <button class="btn btn-ghost btn-sm" onclick="redigerMal(${JSON.stringify(t).replace(/</g,'\\u003c')})">✏️ Rediger</button>
+                <button class="btn btn-ghost btn-sm" onclick="kopierMal(${JSON.stringify(t).replace(/</g,'\\u003c')})">📋 Kopier</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteOrdre('${t.id}')">Slett</button>
+              </div>
+            </td>
+          </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
+}
+
+function sendMalDirekte(t) {
+  document.getElementById('g-to').value = '';
+  document.getElementById('g-subject').value = t.subject;
+  document.getElementById('g-body').value = t.body;
+  document.getElementById('g-contact-id').value = '';
+  document.getElementById('g-image-filename').value = t.image_filename || '';
+  _updateImagePreview(t.image_filename);
+  showModal('modal-gmail');
 }
 
 async function deleteMal(id) {
   if (!confirm('Slett denne malen?')) return;
   await api(`/api/email-templates/${id}`, 'DELETE');
   renderMaler();
+}
+
+async function deleteOrdre(id) {
+  if (!confirm('Slett denne malen?')) return;
+  await api(`/api/email-templates/${id}`, 'DELETE');
+  renderOrdrebekreftelser();
+}
+
+async function kopierMal(t) {
+  const name = prompt('Navn på kopien:', t.name + ' (kopi)');
+  if (!name) return;
+  await api('/api/email-templates', 'POST', { name, subject: t.subject, body: t.body, category: t.category, image_filename: t.image_filename });
+  if (currentView === 'maler') renderMaler();
+  else if (currentView === 'ordrebekreftelser') renderOrdrebekreftelser();
+}
+
+let _redigerMalId = null;
+
+function redigerMal(t) {
+  _redigerMalId = t.id;
+  _nyMalNavn = t.name;
+  _nyMalCategory = t.category || 'email';
+  document.getElementById('nm-subject').value = t.subject;
+  document.getElementById('nm-body').value = t.body;
+  document.getElementById('nm-name').value = t.name;
+  document.getElementById('nm-category').value = t.category || 'email';
+  _nmExistingImage = t.image_filename || '';
+  const prev = document.getElementById('nm-image-preview');
+  const thumb = document.getElementById('nm-image-thumb');
+  if (t.image_filename) {
+    prev.style.display = 'block';
+    thumb.src = '/static/' + t.image_filename;
+  } else {
+    clearNmImage();
+  }
+  showModal('modal-ny-mal');
 }
 
 let _malerCache = null;
@@ -1015,35 +1139,102 @@ async function toggleTemplatePicker() {
     <div onclick="loadTemplateIntoCompose(${JSON.stringify(t).replace(/</g,'\\u003c')})"
       style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px"
       onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <div style="font-weight:600">${t.name}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">${t.body.substring(0,60).replace(/\r?\n/g,' ')}…</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${t.image_filename ? `<img src="/static/${t.image_filename}" style="width:32px;height:22px;object-fit:cover;border-radius:3px">` : ''}
+        <div>
+          <div style="font-weight:600">${t.name}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${t.body.substring(0,60).replace(/\r?\n/g,' ')}…</div>
+        </div>
+      </div>
     </div>`).join('');
 }
 
 function loadTemplateIntoCompose(t) {
   document.getElementById('g-subject').value = t.subject;
   document.getElementById('g-body').value = t.body;
+  document.getElementById('g-image-filename').value = t.image_filename || '';
+  _updateImagePreview(t.image_filename);
   document.getElementById('template-picker').style.display = 'none';
 }
 
-function openNyMal() {
-  const name = prompt('Navn på malen:');
-  if (!name) return;
-  _nyMalNavn = name;
+function _updateImagePreview(filename) {
+  const el = document.getElementById('g-image-preview');
+  if (!el) return;
+  if (filename) {
+    el.style.display = 'block';
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:6px 0"><img src="/static/${filename}" style="height:32px;border-radius:3px;border:1px solid var(--border)"> <span>${filename}</span> <span onclick="document.getElementById('g-image-filename').value='';_updateImagePreview('')" style="cursor:pointer;color:#ef4444;margin-left:4px">✕ Fjern bilde</span></div>`;
+  } else {
+    el.style.display = 'none';
+    el.innerHTML = '';
+  }
+}
+
+function openNyMal(category) {
+  _redigerMalId = null;
+  _nyMalCategory = category || 'email';
+  _nyMalNavn = '';
+  document.getElementById('nm-name').value = '';
   document.getElementById('nm-subject').value = '';
   document.getElementById('nm-body').value = '';
+  document.getElementById('nm-category').value = _nyMalCategory;
+  clearNmImage();
   showModal('modal-ny-mal');
 }
 
 let _nyMalNavn = '';
+let _nyMalCategory = 'email';
+
+let _nmExistingImage = '';
 
 async function saveNyMal() {
+  const name = document.getElementById('nm-name').value.trim();
   const subject = document.getElementById('nm-subject').value.trim();
   const body = document.getElementById('nm-body').value.trim();
-  if (!subject || !body) return alert('Emne og melding er påkrevd');
-  await api('/api/email-templates', 'POST', { name: _nyMalNavn, subject, body });
+  const category = document.getElementById('nm-category').value;
+  if (!name || !subject || !body) return alert('Navn, emne og melding er påkrevd');
+
+  // Upload image if a new one was selected
+  let image_filename = _nmExistingImage || null;
+  const fileInput = document.getElementById('nm-image');
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    const r = await fetch(API + '/api/upload-image', { method: 'POST', body: fd });
+    if (r.ok) {
+      const d = await r.json();
+      image_filename = d.filename;
+    }
+  }
+
+  if (_redigerMalId) {
+    await api(`/api/email-templates/${_redigerMalId}`, 'PUT', { name, subject, body, category, image_filename });
+  } else {
+    await api('/api/email-templates', 'POST', { name, subject, body, category, image_filename });
+  }
   closeModal();
   if (currentView === 'maler') renderMaler();
+  else if (currentView === 'ordrebekreftelser') renderOrdrebekreftelser();
+}
+
+function previewNmImage(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('nm-image-thumb').src = e.target.result;
+    document.getElementById('nm-image-preview').style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearNmImage() {
+  const fi = document.getElementById('nm-image');
+  if (fi) fi.value = '';
+  const prev = document.getElementById('nm-image-preview');
+  if (prev) prev.style.display = 'none';
+  const thumb = document.getElementById('nm-image-thumb');
+  if (thumb) thumb.src = '';
+  _nmExistingImage = '';
 }
 
 
@@ -1075,6 +1266,12 @@ async function boot() {
     history.replaceState({}, '', '/');
     showView('gmail');
     return;
+  }
+  // Gjenopprett siste visning fra URL-hash
+  const validViews = ['dashboard','contacts','deals','pipeline','stripe','gmail','maler','ordrebekreftelser'];
+  const hash = location.hash.replace('#','');
+  if (hash && validViews.includes(hash)) {
+    currentView = hash;
   }
   try {
     const h = await api('/api/ping');

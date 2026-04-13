@@ -30,18 +30,20 @@ for table in tables:
     for row in rows:
         vals = tuple(row[c] for c in cols)
         try:
+            pg_cur.execute("SAVEPOINT sp")
             pg_cur.execute(
                 f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) ON CONFLICT (id) DO NOTHING",
                 vals
             )
+            pg_cur.execute("RELEASE SAVEPOINT sp")
             inserted += 1
         except Exception as e:
+            pg_cur.execute("ROLLBACK TO SAVEPOINT sp")
             print(f"  Hopper over rad i {table}: {e}")
 
+    pg_conn.commit()
     print(f"{table}: {inserted}/{len(rows)} overført")
     total += inserted
-
-pg_conn.commit()
 pg_conn.close()
 sqlite_conn.close()
 print(f"\nFerdig! {total} rader totalt overført til Supabase.")
