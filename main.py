@@ -595,18 +595,32 @@ def gmail_status():
 def gmail_auth():
     if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET:
         raise HTTPException(400, "GMAIL_CLIENT_ID og GMAIL_CLIENT_SECRET mangler i .env")
-    flow = Flow.from_client_config(gmail_client_config(), scopes=GMAIL_SCOPES, redirect_uri=GMAIL_REDIRECT_URI)
-    auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
-    _oauth_states[state] = getattr(flow, 'code_verifier', None)
+    import urllib.parse as _urlparse, secrets as _sec
+    params = {
+        "client_id": GMAIL_CLIENT_ID,
+        "redirect_uri": GMAIL_REDIRECT_URI,
+        "response_type": "code",
+        "scope": " ".join(GMAIL_SCOPES),
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": _sec.token_urlsafe(16),
+    }
+    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + _urlparse.urlencode(params)
     return {"url": auth_url}
 
 @app.get("/api/gmail/callback")
 def gmail_callback(code: str, state: str = None):
-    code_verifier = _oauth_states.pop(state, None) if state else None
-    flow = Flow.from_client_config(gmail_client_config(), scopes=GMAIL_SCOPES, redirect_uri=GMAIL_REDIRECT_URI)
-    if code_verifier:
-        flow.code_verifier = code_verifier
-    flow.fetch_token(code=code)
+    import requests as _req
+    resp = _req.post("https://oauth2.googleapis.com/token", data={
+        "code": code,
+        "client_id": GMAIL_CLIENT_ID,
+        "client_secret": GMAIL_CLIENT_SECRET,
+        "redirect_uri": GMAIL_REDIRECT_URI,
+        "grant_type": "authorization_code",
+    })
+    resp.raise_for_status()
+    token_data = resp.json()
+    _gmail_token_db_set(token_data.get("access_token"), token_data.get("refresh_token"))
     creds = flow.credentials
     _gmail_token_db_set(creds.token, creds.refresh_token)
     return RedirectResponse("/?gmail=connected")
