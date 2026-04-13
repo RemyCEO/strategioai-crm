@@ -716,7 +716,7 @@ async def gmail_send(data: GmailSend):
     msg = EmailMessage()
     msg["To"] = data.to
     msg["Subject"] = data.subject
-    msg.set_content(data.body)
+    msg.set_content(data.body, charset="utf-8")
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
     if data.contact_id:
