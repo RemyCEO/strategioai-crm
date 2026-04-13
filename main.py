@@ -31,8 +31,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
 GMAIL_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/api/gmail/callback")
-GMAIL_TOKEN_FILE = os.path.join(os.path.dirname(__file__), "gmail_token.json")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
+_oauth_states = {}  # state -> code_verifier, for PKCE
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -541,11 +541,34 @@ def gmail_client_config():
         }
     }
 
-def get_gmail_creds():
-    if not os.path.exists(GMAIL_TOKEN_FILE):
+def _gmail_token_db_get():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM app_settings WHERE key = 'gmail_token'")
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        return json.loads(row[0]) if row else None
+    except Exception:
         return None
-    with open(GMAIL_TOKEN_FILE) as f:
-        data = json.load(f)
+
+def _gmail_token_db_set(token, refresh_token):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        data = json.dumps({"token": token, "refresh_token": refresh_token})
+        cur.execute("""
+            INSERT INTO app_settings (key, value) VALUES ('gmail_token', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """, (data,))
+        conn.commit(); cur.close(); conn.close()
+    except Exception:
+        pass
+
+def get_gmail_creds():
+    data = _gmail_token_db_get()
+    if not data:
+        return None
     creds = Credentials(
         token=data.get("token"),
         refresh_token=data.get("refresh_token"),
@@ -556,8 +579,7 @@ def get_gmail_creds():
     )
     if creds.expired and creds.refresh_token:
         creds.refresh(GRequest())
-        with open(GMAIL_TOKEN_FILE, "w") as f:
-            json.dump({"token": creds.token, "refresh_token": creds.refresh_token}, f)
+        _gmail_token_db_set(creds.token, creds.refresh_token)
     return creds
 
 @app.get("/api/gmail/status")
@@ -574,16 +596,19 @@ def gmail_auth():
     if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET:
         raise HTTPException(400, "GMAIL_CLIENT_ID og GMAIL_CLIENT_SECRET mangler i .env")
     flow = Flow.from_client_config(gmail_client_config(), scopes=GMAIL_SCOPES, redirect_uri=GMAIL_REDIRECT_URI)
-    auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+    auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+    _oauth_states[state] = getattr(flow, 'code_verifier', None)
     return {"url": auth_url}
 
 @app.get("/api/gmail/callback")
-def gmail_callback(code: str):
+def gmail_callback(code: str, state: str = None):
+    code_verifier = _oauth_states.pop(state, None) if state else None
     flow = Flow.from_client_config(gmail_client_config(), scopes=GMAIL_SCOPES, redirect_uri=GMAIL_REDIRECT_URI)
+    if code_verifier:
+        flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     creds = flow.credentials
-    with open(GMAIL_TOKEN_FILE, "w") as f:
-        json.dump({"token": creds.token, "refresh_token": creds.refresh_token}, f)
+    _gmail_token_db_set(creds.token, creds.refresh_token)
     return RedirectResponse("/?gmail=connected")
 
 @app.get("/api/gmail/threads")
