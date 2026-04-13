@@ -704,7 +704,7 @@ class GmailSend(BaseModel):
     to: str
     subject: str
     body: str
-    contact_id: str = None
+    contact_id: str | None = None
 
 @app.post("/api/gmail/send")
 async def gmail_send(data: GmailSend):
