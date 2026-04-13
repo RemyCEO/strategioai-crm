@@ -591,9 +591,10 @@ async function loadStripePanel(email) {
     document.getElementById('stripe-panel-content').innerHTML = `<p style="color:var(--muted);font-size:13px">Ingen e-post registrert på kontakten.</p>`;
     return;
   }
-  const [payments, subs] = await Promise.all([
+  const [payments, subs, invoices] = await Promise.all([
     api(`/api/stripe/payments/${encodeURIComponent(email)}`),
-    api(`/api/stripe/subscriptions/${encodeURIComponent(email)}`)
+    api(`/api/stripe/subscriptions/${encodeURIComponent(email)}`),
+    api(`/api/stripe/invoices/${encodeURIComponent(email)}`)
   ]);
   const el = document.getElementById('stripe-panel-content');
   if (!el) return;
@@ -632,7 +633,29 @@ async function loadStripePanel(email) {
         </div>`).join('')}
     </div>` : `<p style="font-size:12px;color:var(--muted)">Ingen betalinger funnet for ${email}</p>`;
 
-  el.innerHTML = subsHtml + paymentsHtml;
+  const statusColor = { open: '#facc15', paid: '#4ade80', void: '#888', uncollectible: '#f87171', draft: '#888' };
+  const invoicesHtml = (invoices && invoices.length > 0) ? `
+    <div class="panel-section" style="margin-bottom:16px">
+      <h3>Fakturaer</h3>
+      ${invoices.map(inv => {
+        const overdue = inv.status === 'open' && inv.due_date && new Date(inv.due_date) < new Date();
+        return `<div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-bottom:6px;${overdue ? 'border-left:3px solid #f87171' : ''}">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="font-size:12px;font-weight:600">${inv.number || inv.id}</div>
+            <span style="font-size:11px;font-weight:700;color:${statusColor[inv.status]||'#888'}">${inv.status.toUpperCase()}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+            <div style="font-size:11px;color:var(--muted)">
+              ${fmt(inv.amount_due)} ${inv.currency}
+              ${inv.due_date ? ` · Forfall: <span style="color:${overdue?'#f87171':'var(--muted)'};font-weight:${overdue?'700':'400'}">${fmtDate(inv.due_date)}${overdue?' ⚠️':''}</span>` : ''}
+            </div>
+            ${inv.invoice_pdf ? `<a href="${inv.invoice_pdf}" target="_blank" style="color:var(--green);font-size:11px">PDF</a>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  el.innerHTML = subsHtml + invoicesHtml + paymentsHtml;
 }
 
 function closePanel() {

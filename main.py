@@ -469,6 +469,30 @@ def stripe_subscriptions(email: str):
         })
     return result
 
+@app.get("/api/stripe/invoices/{email}")
+def stripe_invoices(email: str):
+    stripe_ok()
+    customers = stripe.Customer.list(email=email, limit=5)
+    if not customers.data:
+        return []
+    customer = customers.data[0]
+    invoices = stripe.Invoice.list(customer=customer.id, limit=50)
+    result = []
+    for inv in invoices.auto_paging_iter():
+        result.append({
+            "id": inv.id,
+            "number": inv.number,
+            "amount_due": (inv.amount_due or 0) / 100,
+            "amount_paid": (inv.amount_paid or 0) / 100,
+            "currency": (inv.currency or "").upper(),
+            "status": inv.status,
+            "due_date": datetime.fromtimestamp(inv.due_date, tz=timezone.utc).isoformat() if inv.due_date else None,
+            "created": datetime.fromtimestamp(inv.created, tz=timezone.utc).isoformat(),
+            "invoice_pdf": inv.invoice_pdf,
+            "hosted_invoice_url": inv.hosted_invoice_url,
+        })
+    return result
+
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -554,7 +578,9 @@ def _gmail_token_db_get():
         row = cur.fetchone()
         cur.close(); conn.close()
         return json.loads(row[0]) if row else None
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger("crm").warning(f"_gmail_token_db_get error: {e}")
         return None
 
 def _gmail_token_db_set(token, refresh_token):
@@ -572,6 +598,7 @@ def _gmail_token_db_set(token, refresh_token):
 
 def get_gmail_creds():
     data = _gmail_token_db_get()
+    print(f"[DEBUG gmail] data={bool(data)} refresh={bool(data.get('refresh_token') if data else None)}", flush=True)
     if not data or not data.get("refresh_token"):
         return None
     # Always refresh to ensure a valid access token
@@ -601,10 +628,17 @@ def get_gmail_creds():
 def gmail_status():
     if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET:
         return {"connected": False, "reason": "no_credentials"}
+    db_data = _gmail_token_db_get()
     creds = get_gmail_creds()
     if creds and (creds.valid or creds.refresh_token):
         return {"connected": True}
-    return {"connected": False, "reason": "not_authorized"}
+    return {"connected": False, "reason": "not_authorized", "_debug": {
+        "db_has_data": bool(db_data),
+        "db_has_refresh": bool(db_data.get("refresh_token") if db_data else None),
+        "creds_returned": bool(creds),
+        "DATABASE_URL_set": bool(DATABASE_URL),
+        "GMAIL_CLIENT_ID_set": bool(GMAIL_CLIENT_ID),
+    }}
 
 @app.get("/api/gmail/auth")
 def gmail_auth():
