@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StrategioAI CRM</title>
+<style>
+:root {
+  --green: #22c55e;
+  --green-dim: rgba(34,197,94,0.12);
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface2: #273548;
+  --border: #334155;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --danger: #ef4444;
+  --yellow: #f59e0b;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background:var(--bg); color:var(--text); font-size:14px; display:flex; height:100vh; overflow:hidden; }
+
+/* SIDEBAR */
+.sidebar { width:220px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
+.sidebar-logo { padding:20px 20px 16px; border-bottom:1px solid var(--border); }
+.sidebar-logo span { font-size:18px; font-weight:800; color:var(--text); }
+.sidebar-logo span b { color:var(--green); }
+.sidebar-logo p { font-size:10px; color:var(--muted); margin-top:2px; }
+.nav { padding:12px 10px; flex:1; }
+.nav-item { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:7px; cursor:pointer; color:var(--muted); font-size:13px; font-weight:500; transition:.15s; margin-bottom:2px; }
+.nav-item:hover { background:var(--surface2); color:var(--text); }
+.nav-item.active { background:var(--green-dim); color:var(--green); }
+.nav-item .icon { font-size:16px; width:20px; text-align:center; }
+
+/* MAIN */
+.main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+.topbar { padding:16px 28px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--surface); }
+.topbar h1 { font-size:16px; font-weight:700; }
+.topbar-actions { display:flex; gap:8px; }
+
+/* CONTENT */
+.content { flex:1; overflow-y:auto; padding:24px 28px; }
+
+/* STATS */
+.stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:18px 20px; }
+.stat-card .label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:8px; }
+.stat-card .value { font-size:26px; font-weight:800; color:var(--text); }
+.stat-card .value.green { color:var(--green); }
+.stat-card .sub { font-size:11px; color:var(--muted); margin-top:4px; }
+
+/* TABLE */
+.table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.table-header { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.table-header input { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:7px; padding:7px 12px; font-size:13px; width:240px; outline:none; }
+.table-header input:focus { border-color:var(--green); }
+.table-header select { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:7px; padding:7px 10px; font-size:13px; outline:none; cursor:pointer; }
+table { width:100%; border-collapse:collapse; }
+thead th { padding:11px 14px; text-align:left; font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.7px; border-bottom:1px solid var(--border); background:var(--surface2); }
+tbody tr { border-bottom:1px solid var(--border); cursor:pointer; transition:.12s; }
+tbody tr:last-child { border-bottom:none; }
+tbody tr:hover { background:var(--surface2); }
+tbody td { padding:12px 14px; font-size:13px; }
+
+/* BADGES */
+.badge { display:inline-flex; align-items:center; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:600; }
+.badge.ny { background:rgba(148,163,184,.15); color:#94a3b8; }
+.badge.kontaktet { background:rgba(99,102,241,.15); color:#818cf8; }
+.badge.møte { background:rgba(245,158,11,.15); color:#f59e0b; }
+.badge.tilbud { background:rgba(59,130,246,.15); color:#60a5fa; }
+.badge.vunnet, .badge.kunde { background:rgba(34,197,94,.15); color:#22c55e; }
+.badge.tapt { background:rgba(239,68,68,.15); color:#ef4444; }
+.badge.stripe { background:rgba(99,102,241,.18); color:#a5b4fc; }
+.badge.lead { background:rgba(245,158,11,.15); color:#f59e0b; }
+.badge.succeeded { background:rgba(34,197,94,.15); color:#22c55e; }
+.badge.failed { background:rgba(239,68,68,.15); color:#ef4444; }
+.badge.active { background:rgba(34,197,94,.15); color:#22c55e; }
+.badge.canceled { background:rgba(239,68,68,.15); color:#ef4444; }
+.badge.past_due { background:rgba(245,158,11,.15); color:#f59e0b; }
+
+/* TABS */
+.tabs { display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:0; }
+.tab { padding:7px 14px; font-size:12px; font-weight:600; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; }
+.tab.active { color:var(--green); border-bottom-color:var(--green); }
+.tab:hover { color:var(--text); }
+
+/* BUTTONS */
+.btn { padding:8px 16px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition:.15s; }
+.btn-green { background:var(--green); color:#000; }
+.btn-green:hover { background:#16a34a; }
+.btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
+.btn-ghost:hover { color:var(--text); border-color:var(--muted); }
+.btn-danger { background:rgba(239,68,68,.12); color:var(--danger); border:1px solid rgba(239,68,68,.2); }
+.btn-danger:hover { background:var(--danger); color:#fff; }
+.btn-sm { padding:5px 11px; font-size:12px; }
+
+/* MODAL */
+.overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:100; align-items:center; justify-content:center; }
+.overlay.open { display:flex; }
+.modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:480px; max-height:90vh; overflow-y:auto; padding:28px; }
+.modal h2 { font-size:16px; font-weight:700; margin-bottom:20px; }
+.form-group { margin-bottom:14px; }
+.form-group label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; font-weight:500; }
+.form-group input, .form-group select, .form-group textarea {
+  width:100%; background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:7px; padding:9px 12px; font-size:13px; outline:none; font-family:inherit;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color:var(--green); }
+.form-group textarea { resize:vertical; min-height:72px; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.modal-footer { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+
+/* SIDE PANEL */
+.panel { position:fixed; right:0; top:0; bottom:0; width:420px; background:var(--surface); border-left:1px solid var(--border); z-index:50; transform:translateX(100%); transition:.25s; display:flex; flex-direction:column; overflow:hidden; }
+.panel.open { transform:translateX(0); }
+.panel-header { padding:20px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; }
+.panel-header h2 { font-size:15px; font-weight:700; }
+.panel-header p { font-size:12px; color:var(--muted); margin-top:3px; }
+.panel-close { background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer; padding:0; line-height:1; }
+.panel-close:hover { color:var(--text); }
+.panel-body { flex:1; overflow-y:auto; padding:20px 22px; }
+.panel-section { margin-bottom:22px; }
+.panel-section h3 { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:12px; }
+.info-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.info-item { background:var(--surface2); border-radius:7px; padding:10px 12px; }
+.info-item .key { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin-bottom:3px; }
+.info-item .val { font-size:13px; font-weight:500; }
+
+/* ACTIVITY */
+.activity-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+.activity-item:last-child { border-bottom:none; }
+.activity-dot { width:8px; height:8px; border-radius:50%; background:var(--green); margin-top:5px; flex-shrink:0; }
+.activity-item .meta { font-size:11px; color:var(--muted); margin-top:2px; }
+.activity-type { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.7px; color:var(--green); }
+
+.deal-row { background:var(--surface2); border-radius:8px; padding:12px 14px; margin-bottom:8px; cursor:pointer; border:1px solid var(--border); }
+.deal-row:hover { border-color:var(--green); }
+.deal-row .deal-title { font-weight:600; font-size:13px; }
+.deal-row .deal-meta { font-size:12px; color:var(--muted); margin-top:4px; display:flex; gap:12px; }
+
+/* PIPELINE VIEW */
+.pipeline { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; overflow-x:auto; }
+.pipeline-col { background:var(--surface); border:1px solid var(--border); border-radius:10px; min-width:160px; }
+.pipeline-col-header { padding:12px 14px; border-bottom:1px solid var(--border); }
+.pipeline-col-header .col-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; }
+.pipeline-col-header .col-count { font-size:11px; color:var(--muted); margin-top:2px; }
+.pipeline-cards { padding:10px 10px; min-height:80px; }
+.pipeline-card { background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:10px 12px; margin-bottom:8px; cursor:pointer; }
+.pipeline-card:hover { border-color:var(--green); }
+.pipeline-card .p-name { font-size:12px; font-weight:600; }
+.pipeline-card .p-company { font-size:11px; color:var(--muted); }
+.pipeline-card .p-value { font-size:11px; color:var(--green); font-weight:600; margin-top:4px; }
+
+/* EMPTY */
+.empty { text-align:center; padding:60px 20px; color:var(--muted); }
+.empty .emoji { font-size:36px; margin-bottom:12px; }
+.empty p { font-size:13px; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+.hidden { display:none !important; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <span>STRATEGIO<b>AI</b></span>
+    <p>CRM Dashboard</p>
+  </div>
+  <nav class="nav">
+    <div class="nav-item active" onclick="showView('dashboard')"><span class="icon">📊</span> Dashboard</div>
+    <div class="nav-item" onclick="showView('contacts')"><span class="icon">👥</span> Kontakter</div>
+    <div class="nav-item" onclick="showView('deals')"><span class="icon">💼</span> Deals</div>
+    <div class="nav-item" onclick="showView('pipeline')"><span class="icon">🔀</span> Pipeline</div>
+    <div class="nav-item" onclick="showView('stripe')"><span class="icon">💳</span> Stripe</div>
+  </nav>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <h1 id="view-title">Dashboard</h1>
+    <div class="topbar-actions" id="topbar-actions"></div>
+  </div>
+  <div class="content" id="content"></div>
+</div>
+
+<!-- CONTACT PANEL -->
+<div class="panel" id="contact-panel">
+  <div class="panel-header">
+    <div>
+      <h2 id="panel-name">—</h2>
+      <p id="panel-company">—</p>
+    </div>
+    <button class="panel-close" onclick="closePanel()">✕</button>
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</div>
+
+<!-- MODALS -->
+<div class="overlay" id="modal-overlay" onclick="closeModal(event)">
+
+  <!-- Ny kontakt -->
+  <div class="modal" id="modal-contact" style="display:none">
+    <h2 id="modal-contact-title">Ny kontakt</h2>
+    <div class="form-row">
+      <div class="form-group"><label>Navn *</label><input id="c-name" placeholder="Ola Nordmann"></div>
+      <div class="form-group"><label>Firma</label><input id="c-company" placeholder="Burger AS"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>E-post</label><input id="c-email" placeholder="ola@burger.no"></div>
+      <div class="form-group"><label>Telefon</label><input id="c-phone" placeholder="+47 900 00 000"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Kilde</label>
+        <select id="c-source">
+          <option value="manuell">Manuell</option>
+          <option value="gmaps">Google Maps</option>
+          <option value="nettside">Nettside</option>
+          <option value="ref">Referanse</option>
+          <option value="instagram">Instagram</option>
+          <option value="kald">Kald outreach</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Status</label>
+        <select id="c-status">
+          <option value="ny">Ny</option>
+          <option value="kontaktet">Kontaktet</option>
+          <option value="møte">Møte booket</option>
+          <option value="tilbud">Tilbud sendt</option>
+          <option value="kunde">Kunde</option>
+          <option value="tapt">Tapt</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label>Notater</label><textarea id="c-notes" placeholder="Møtte på restaurant i Majorstuen..."></textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
+      <button class="btn btn-green" onclick="saveContact()">Lagre</button>
+    </div>
+  </div>
+
+  <!-- Ny deal -->
+  <div class="modal" id="modal-deal" style="display:none">
+    <h2>Ny deal</h2>
+    <div class="form-group"><label>Tittel *</label><input id="d-title" placeholder="StrategioAI Pakke 2 — Burger AS"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Verdi (kr)</label><input id="d-value" type="number" placeholder="8500"></div>
+      <div class="form-group"><label>Pakke</label>
+        <select id="d-package">
+          <option value="">— velg —</option>
+          <option value="pakke1">Pakke 1 — Starter (4 500/mnd)</option>
+          <option value="pakke2">Pakke 2 — Vekst (8 500/mnd)</option>
+          <option value="pakke3">Pakke 3 — Full video (14–18 000/mnd)</option>
+          <option value="engang">Éngangsprodukt</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Kategori</label>
+        <select id="d-type" onchange="toggleRecurring(this.value)">
+          <option value="engang">Éngang</option>
+          <option value="subscription">Subscription (abonnement)</option>
+        </select>
+      </div>
+      <div class="form-group" id="recurring-field" style="display:none"><label>Månedlig beløp (kr)</label><input id="d-recurring" type="number" placeholder="399"></div>
+    </div>
+    <div class="form-group"><label>Status</label>
+      <select id="d-status">
+        <option value="ny">Ny</option>
+        <option value="kontaktet">Kontaktet</option>
+        <option value="møte">Møte booket</option>
+        <option value="tilbud">Tilbud sendt</option>
+        <option value="vunnet">Vunnet 🎉</option>
+        <option value="tapt">Tapt</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Notater</label><textarea id="d-notes" placeholder="Interessert i TikTok-pakke..."></textarea></div>
+    <input type="hidden" id="d-contact-id">
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
+      <button class="btn btn-green" onclick="saveDeal()">Lagre</button>
+    </div>
+  </div>
+
+  <!-- Ny aktivitet -->
+  <div class="modal" id="modal-activity" style="display:none">
+    <h2>Logg aktivitet</h2>
+    <div class="form-group"><label>Type</label>
+      <select id="a-type">
+        <option value="notat">📝 Notat</option>
+        <option value="call">📞 Telefonsamtale</option>
+        <option value="email">📧 E-post</option>
+        <option value="møte">🤝 Møte</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Notat</label><textarea id="a-note" placeholder="Ringte, ikke svar. Prøver igjen fredag..."></textarea></div>
+    <input type="hidden" id="a-contact-id">
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
+      <button class="btn btn-green" onclick="saveActivity()">Lagre</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+let currentView = 'dashboard';
+let editContactId = null;
+let activePanelId = null;
+let panelTab = 'info';
+
+// --- NAV ---
+function showView(view) {
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item')[['dashboard','contacts','deals','pipeline','stripe'].indexOf(view)].classList.add('active');
+  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder' };
+  document.getElementById('view-title').textContent = titles[view];
+  closePanel();
+  render();
+}
+
+async function render() {
+  const actions = document.getElementById('topbar-actions');
+  if (currentView === 'dashboard') { actions.innerHTML=''; await renderDashboard(); }
+  else if (currentView === 'contacts') {
+    actions.innerHTML=`
+      <button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer fra Stripe</button>
+      <button class="btn btn-green" onclick="openNewContact()">+ Ny kontakt</button>`;
+    await renderContacts();
+  }
+  else if (currentView === 'deals') { actions.innerHTML=''; await renderDeals(); }
+  else if (currentView === 'pipeline') { actions.innerHTML=''; await renderPipeline(); }
+  else if (currentView === 'stripe') { actions.innerHTML=`<button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer alle til CRM</button>`; await renderStripe(); }
+}
+
+// --- DASHBOARD ---
+async function renderDashboard() {
+  const s = await api('/api/stats');
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="stats-grid" style="grid-template-columns:repeat(5,1fr)">
+      <div class="stat-card">
+        <div class="label">Totale kontakter</div>
+        <div class="value">${s.total_contacts}</div>
+        <div class="sub">Alle leads og kunder</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Pipeline-verdi</div>
+        <div class="value green">${fmt(s.pipeline_value)}</div>
+        <div class="sub">Aktive deals</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Vunnet</div>
+        <div class="value green">${fmt(s.won_value)}</div>
+        <div class="sub">Betalende kunder</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Kunder</div>
+        <div class="value">${s.by_status?.kunde || 0}</div>
+        <div class="sub">Aktive kunder</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">MRR</div>
+        <div class="value green">${fmt(s.mrr || 0)}</div>
+        <div class="sub">Månedlig gjentakende</div>
+      </div>
+    </div>
+    <div class="stats-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:0">
+      ${['ny','kontaktet','møte','tilbud','vunnet','tapt'].map(st => `
+        <div class="stat-card" style="padding:14px 16px">
+          <div class="label">${st}</div>
+          <div class="value" style="font-size:20px">${s.by_status?.[st] || 0}</div>
+        </div>`).join('')}
+    </div>`;
+}
+
+// --- CONTACTS ---
+let contactSearch = '';
+let contactFilter = '';
+
+async function renderContacts() {
+  let url = '/api/contacts';
+  const params = [];
+  if (contactFilter) params.push(`status=${contactFilter}`);
+  if (contactSearch) params.push(`search=${encodeURIComponent(contactSearch)}`);
+  if (params.length) url += '?' + params.join('&');
+  const contacts = await api(url);
+
+  document.getElementById('content').innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header">
+        <input id="search-input" placeholder="Søk navn, firma, e-post..." value="${contactSearch}" oninput="contactSearch=this.value; renderContacts()">
+        <select onchange="contactFilter=this.value; renderContacts()">
+          <option value="">Alle statuser</option>
+          ${['ny','kontaktet','møte','tilbud','kunde','tapt'].map(s=>`<option value="${s}" ${contactFilter===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+        </select>
+      </div>
+      ${contacts.length === 0 ? `<div class="empty"><div class="emoji">📭</div><p>Ingen kontakter funnet</p></div>` : `
+      <table>
+        <thead><tr>
+          <th>Navn</th><th>Firma</th><th>E-post</th><th>Telefon</th><th>Kilde</th><th>Status</th><th>Opprettet</th>
+        </tr></thead>
+        <tbody>
+          ${contacts.map(c => `
+            <tr onclick="openPanel('${c.id}')">
+              <td><strong>${c.name}</strong></td>
+              <td>${c.company || '—'}</td>
+              <td>${c.email || '—'}</td>
+              <td>${c.phone || '—'}</td>
+              <td>${c.source || '—'}</td>
+              <td><span class="badge ${c.status}">${c.status}</span></td>
+              <td style="color:var(--muted)">${fmtDate(c.created_at)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+
+// --- DEALS ---
+async function renderDeals() {
+  const deals = await api('/api/deals');
+  document.getElementById('content').innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header"><span style="font-size:13px;font-weight:600">Alle deals</span></div>
+      ${deals.length === 0 ? `<div class="empty"><div class="emoji">💼</div><p>Ingen deals ennå</p></div>` : `
+      <table>
+        <thead><tr><th>Tittel</th><th>Kontakt</th><th>Kategori</th><th>Pakke</th><th>Verdi</th><th>Status</th><th>Dato</th></tr></thead>
+        <tbody>
+          ${deals.map(d => `
+            <tr onclick="openPanel('${d.contact_id}')">
+              <td><strong>${d.title}</strong></td>
+              <td>${d.contacts?.name || '—'}</td>
+              <td>${d.type === 'subscription'
+                ? `<span class="badge active" style="font-size:10px">🔁 ${fmt(d.recurring_amount)}/mnd</span>`
+                : `<span style="font-size:11px;color:var(--muted)">Éngang</span>`}</td>
+              <td style="color:var(--muted);font-size:12px">${d.package || '—'}</td>
+              <td style="color:var(--green);font-weight:600">${fmt(d.value)}</td>
+              <td><span class="badge ${d.status}">${d.status}</span></td>
+              <td style="color:var(--muted)">${fmtDate(d.created_at)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+
+// --- PIPELINE ---
+async function renderPipeline() {
+  const contacts = await api('/api/contacts');
+  const stages = ['ny','kontaktet','møte','tilbud','kunde','tapt'];
+  const labels = { ny:'Ny', kontaktet:'Kontaktet', møte:'Møte booket', tilbud:'Tilbud sendt', kunde:'Kunde', tapt:'Tapt' };
+  const colors = { ny:'#94a3b8', kontaktet:'#818cf8', møte:'#f59e0b', tilbud:'#60a5fa', kunde:'#22c55e', tapt:'#ef4444' };
+
+  const grouped = {};
+  stages.forEach(s => grouped[s] = contacts.filter(c => c.status === s));
+
+  document.getElementById('content').innerHTML = `
+    <div class="pipeline">
+      ${stages.map(s => `
+        <div class="pipeline-col">
+          <div class="pipeline-col-header">
+            <div class="col-label" style="color:${colors[s]}">${labels[s]}</div>
+            <div class="col-count">${grouped[s].length} kontakt${grouped[s].length !== 1 ? 'er' : ''}</div>
+          </div>
+          <div class="pipeline-cards">
+            ${grouped[s].length === 0 ? `<div style="font-size:11px;color:var(--muted);text-align:center;padding:12px 0">Tom</div>` :
+              grouped[s].map(c => `
+                <div class="pipeline-card" onclick="openPanel('${c.id}')">
+                  <div class="p-name">${c.name}</div>
+                  <div class="p-company">${c.company || ''}</div>
+                </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+// --- PANEL ---
+async function openPanel(id, tab) {
+  activePanelId = id;
+  panelTab = tab || 'info';
+  const all = await api('/api/contacts');
+  const c = all.find(x => x.id === id);
+  if (!c) return;
+
+  document.getElementById('panel-name').textContent = c.name;
+  document.getElementById('panel-company').textContent = c.company || 'Ingen firma';
+  document.getElementById('contact-panel').classList.add('open');
+
+  await renderPanelTab(c);
+}
+
+async function renderPanelTab(c) {
+  const id = c.id;
+  const deals = await api(`/api/deals?contact_id=${id}`);
+  const activities = await api(`/api/activities/${id}`);
+  const activityIcons = { notat:'📝', call:'📞', email:'📧', møte:'🤝', telefon:'📞', betaling:'💳', abonnement:'🔄' };
+
+  let tabContent = '';
+  if (panelTab === 'info') {
+    tabContent = `
+      <div class="panel-section">
+        <div class="info-grid">
+          <div class="info-item"><div class="key">E-post</div><div class="val">${c.email || '—'}</div></div>
+          <div class="info-item"><div class="key">Telefon</div><div class="val">${c.phone || '—'}</div></div>
+          <div class="info-item"><div class="key">Kilde</div><div class="val">${c.source || '—'}</div></div>
+          <div class="info-item"><div class="key">Status</div><div class="val"><span class="badge ${c.status}">${c.status}</span></div></div>
+        </div>
+        ${c.notes ? `<div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-top:10px;font-size:12px;color:var(--muted)">${c.notes}</div>` : ''}
+      </div>
+      <div class="panel-section">
+        <h3 style="display:flex;justify-content:space-between;align-items:center">Deals<button class="btn btn-green btn-sm" onclick="openNewDeal('${id}')">+ Deal</button></h3>
+        ${deals.length === 0 ? `<p style="font-size:12px;color:var(--muted)">Ingen deals</p>` :
+          deals.map(d => `<div class="deal-row"><div class="deal-title">${d.title}</div><div class="deal-meta"><span style="color:var(--green)">${fmt(d.value)}</span><span class="badge ${d.status}" style="padding:1px 7px;font-size:10px">${d.status}</span><span>${d.package||''}</span></div></div>`).join('')}
+      </div>
+      <div class="panel-section">
+        <h3 style="display:flex;justify-content:space-between;align-items:center">Aktiviteter<button class="btn btn-ghost btn-sm" onclick="openNewActivity('${id}')">+ Logg</button></h3>
+        ${activities.length === 0 ? `<p style="font-size:12px;color:var(--muted)">Ingen aktiviteter</p>` :
+          activities.map(a => `<div class="activity-item"><div class="activity-dot" style="${a.type==='betaling'?'background:#a5b4fc':''}"></div><div><div class="activity-type">${activityIcons[a.type]||'•'} ${a.type}</div><div style="font-size:13px;margin-top:2px">${a.note||'—'}</div><div class="meta">${fmtDate(a.created_at)}</div></div></div>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;padding-top:8px">
+        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="openEditContact('${id}')">✏️ Rediger</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteContact('${id}')">🗑️ Slett</button>
+      </div>`;
+  } else if (panelTab === 'stripe') {
+    tabContent = `<div id="stripe-panel-content"><div style="color:var(--muted);font-size:13px">Laster Stripe-data...</div></div>`;
+  }
+
+  document.getElementById('panel-body').innerHTML = `
+    <div class="tabs">
+      <div class="tab ${panelTab==='info'?'active':''}" onclick="panelTab='info';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')})">Info & Aktivitet</div>
+      <div class="tab ${panelTab==='stripe'?'active':''}" onclick="panelTab='stripe';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')});loadStripePanel('${c.email||''}')">💳 Stripe</div>
+    </div>
+    ${tabContent}`;
+
+  if (panelTab === 'stripe' && c.email) {
+    loadStripePanel(c.email);
+  }
+}
+
+async function loadStripePanel(email) {
+  if (!email) {
+    document.getElementById('stripe-panel-content').innerHTML = `<p style="color:var(--muted);font-size:13px">Ingen e-post registrert på kontakten.</p>`;
+    return;
+  }
+  const [payments, subs] = await Promise.all([
+    api(`/api/stripe/payments/${encodeURIComponent(email)}`),
+    api(`/api/stripe/subscriptions/${encodeURIComponent(email)}`)
+  ]);
+  const el = document.getElementById('stripe-panel-content');
+  if (!el) return;
+
+  if (payments === null && subs === null) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:12px">⚠️ Stripe ikke konfigurert. Legg til STRIPE_SECRET_KEY i .env</p>`;
+    return;
+  }
+
+  const subsHtml = (subs && subs.length > 0) ? `
+    <div class="panel-section" style="margin-bottom:16px">
+      <h3>Abonnementer</h3>
+      ${subs.map(s => `
+        <div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="font-size:13px;font-weight:600">${s.plan || s.id}</div>
+            <span class="badge ${s.status}">${s.status}</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">${s.amount > 0 ? fmt(s.amount)+' / '+s.interval : ''} — fornyes ${fmtDate(s.current_period_end)}</div>
+        </div>`).join('')}
+    </div>` : '';
+
+  const paymentsHtml = (payments && payments.length > 0) ? `
+    <div class="panel-section">
+      <h3>Betalingshistorikk</h3>
+      ${payments.map(p => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:12px;font-weight:600">${fmt(p.amount)} ${p.currency}</div>
+            <div style="font-size:11px;color:var(--muted)">${fmtDate(p.date)}${p.description ? ' · '+p.description : ''}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="badge ${p.status}">${p.status}</span>
+            ${p.receipt_url ? `<a href="${p.receipt_url}" target="_blank" style="color:var(--green);font-size:11px">Kvittering</a>` : ''}
+          </div>
+        </div>`).join('')}
+    </div>` : `<p style="font-size:12px;color:var(--muted)">Ingen betalinger funnet for ${email}</p>`;
+
+  el.innerHTML = subsHtml + paymentsHtml;
+}
+
+function closePanel() {
+  document.getElementById('contact-panel').classList.remove('open');
+  activePanelId = null;
+}
+
+// --- STRIPE VIEW ---
+async function renderStripe() {
+  document.getElementById('content').innerHTML = `<div style="color:var(--muted);padding:40px;text-align:center">Laster Stripe-kunder...</div>`;
+  const customers = await api('/api/stripe/customers?limit=100');
+
+  if (customers === null) {
+    document.getElementById('content').innerHTML = `
+      <div style="max-width:540px;margin:60px auto;background:var(--surface);border:1.5px solid rgba(99,102,241,.4);border-radius:12px;padding:36px 40px">
+        <div style="font-size:32px;margin-bottom:12px">💳</div>
+        <h2 style="font-size:18px;font-weight:700;margin-bottom:10px">Stripe ikke konfigurert</h2>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Legg til API-nøkkelen i <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">C:\\Users\\Laptop\\crm\\.env</code>:</p>
+        <div style="background:var(--surface2);border-radius:8px;padding:14px 16px;font-family:monospace;font-size:12px;color:#a5b4fc;margin-bottom:16px">STRIPE_SECRET_KEY=sk_live_...</div>
+        <p style="color:var(--muted);font-size:12px">Finn nøkkelen på <a href="https://dashboard.stripe.com/apikeys" target="_blank" style="color:var(--green)">dashboard.stripe.com/apikeys</a></p>
+      </div>`;
+    return;
+  }
+
+  document.getElementById('content').innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header">
+        <span style="font-size:13px;font-weight:600">${customers.length} Stripe-kunder</span>
+        <span style="font-size:12px;color:var(--muted)">${customers.filter(c=>c.in_crm).length} allerede i CRM</span>
+      </div>
+      ${customers.length === 0 ? `<div class="empty"><div class="emoji">💳</div><p>Ingen Stripe-kunder funnet</p></div>` : `
+      <table>
+        <thead><tr><th>Navn</th><th>E-post</th><th>Telefon</th><th>Registrert</th><th>CRM</th></tr></thead>
+        <tbody>
+          ${customers.map(c => `
+            <tr>
+              <td><strong>${c.name || '—'}</strong></td>
+              <td>${c.email || '—'}</td>
+              <td>${c.phone || '—'}</td>
+              <td style="color:var(--muted)">${fmtDate(c.created)}</td>
+              <td>${c.in_crm
+                ? `<span class="badge kunde" style="font-size:10px">✓ I CRM</span>`
+                : `<span class="badge ny" style="font-size:10px">Ikke importert</span>`}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+
+async function stripeImport() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Importerer...';
+  const res = await api('/api/stripe/sync', 'POST');
+  btn.disabled = false;
+  btn.textContent = '↓ Importer fra Stripe';
+  if (res) {
+    alert(`✅ Importert ${res.imported} nye kunder\nHoppet over ${res.skipped} som allerede finnes`);
+    render();
+  }
+}
+
+// --- MODALS ---
+function openNewContact() {
+  editContactId = null;
+  document.getElementById('modal-contact-title').textContent = 'Ny kontakt';
+  ['name','company','email','phone','notes'].forEach(f => document.getElementById('c-'+f).value = '');
+  document.getElementById('c-source').value = 'manuell';
+  document.getElementById('c-status').value = 'ny';
+  showModal('modal-contact');
+}
+
+async function openEditContact(id) {
+  const all = await api('/api/contacts');
+  const c = all.find(x => x.id === id);
+  if (!c) return;
+  editContactId = id;
+  document.getElementById('modal-contact-title').textContent = 'Rediger kontakt';
+  document.getElementById('c-name').value = c.name || '';
+  document.getElementById('c-company').value = c.company || '';
+  document.getElementById('c-email').value = c.email || '';
+  document.getElementById('c-phone').value = c.phone || '';
+  document.getElementById('c-notes').value = c.notes || '';
+  document.getElementById('c-source').value = c.source || 'manuell';
+  document.getElementById('c-status').value = c.status || 'ny';
+  showModal('modal-contact');
+}
+
+function toggleRecurring(val) {
+  document.getElementById('recurring-field').style.display = val === 'subscription' ? '' : 'none';
+}
+
+function openNewDeal(contactId) {
+  document.getElementById('d-contact-id').value = contactId;
+  ['title','notes'].forEach(f => document.getElementById('d-'+f).value = '');
+  document.getElementById('d-value').value = '';
+  document.getElementById('d-package').value = '';
+  document.getElementById('d-status').value = 'ny';
+  document.getElementById('d-type').value = 'engang';
+  document.getElementById('d-recurring').value = '';
+  document.getElementById('recurring-field').style.display = 'none';
+  showModal('modal-deal');
+}
+
+function openNewActivity(contactId) {
+  document.getElementById('a-contact-id').value = contactId;
+  document.getElementById('a-note').value = '';
+  document.getElementById('a-type').value = 'notat';
+  showModal('modal-activity');
+}
+
+function showModal(id) {
+  document.getElementById('modal-overlay').classList.add('open');
+  document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
+  document.getElementById(id).style.display = 'block';
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modal-overlay')) {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+}
+
+async function saveContact() {
+  const payload = {
+    name: document.getElementById('c-name').value.trim(),
+    company: document.getElementById('c-company').value.trim() || null,
+    email: document.getElementById('c-email').value.trim() || null,
+    phone: document.getElementById('c-phone').value.trim() || null,
+    source: document.getElementById('c-source').value,
+    status: document.getElementById('c-status').value,
+    notes: document.getElementById('c-notes').value.trim() || null,
+  };
+  if (!payload.name) return alert('Navn er påkrevd');
+  if (editContactId) {
+    await api(`/api/contacts/${editContactId}`, 'PATCH', payload);
+  } else {
+    await api('/api/contacts', 'POST', payload);
+  }
+  closeModal();
+  render();
+  if (activePanelId) openPanel(activePanelId);
+}
+
+async function saveDeal() {
+  const type = document.getElementById('d-type').value;
+  const payload = {
+    contact_id: document.getElementById('d-contact-id').value,
+    title: document.getElementById('d-title').value.trim(),
+    value: parseFloat(document.getElementById('d-value').value) || 0,
+    package: document.getElementById('d-package').value || null,
+    status: document.getElementById('d-status').value,
+    notes: document.getElementById('d-notes').value.trim() || null,
+    type: type,
+    recurring_amount: type === 'subscription' ? (parseFloat(document.getElementById('d-recurring').value) || 0) : 0,
+  };
+  if (!payload.title) return alert('Tittel er påkrevd');
+  await api('/api/deals', 'POST', payload);
+  closeModal();
+  if (activePanelId) openPanel(activePanelId);
+}
+
+async function saveActivity() {
+  const payload = {
+    contact_id: document.getElementById('a-contact-id').value,
+    type: document.getElementById('a-type').value,
+    note: document.getElementById('a-note').value.trim() || null,
+  };
+  await api('/api/activities', 'POST', payload);
+  closeModal();
+  if (activePanelId) openPanel(activePanelId);
+}
+
+async function deleteContact(id) {
+  if (!confirm('Slett kontakt og all tilhørende data?')) return;
+  await api(`/api/contacts/${id}`, 'DELETE');
+  closePanel();
+  render();
+}
+
+// --- UTILS ---
+async function api(url, method='GET', body=null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + url, opts);
+  if (!r.ok) { console.error(await r.text()); return null; }
+  if (method === 'DELETE') return null;
+  return r.json();
+}
+
+function fmt(n) {
+  if (!n) return '0 kr';
+  return new Intl.NumberFormat('nb-NO').format(n) + ' kr';
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('nb-NO', { day:'2-digit', month:'short', year:'numeric' });
+}
+
+// Boot — sjekk setup først
+async function boot() {
+  try {
+    const h = await api('/api/ping');
+    if (h && h.setup) {
+      document.getElementById('content').innerHTML = `
+        <div style="max-width:600px;margin:60px auto;background:var(--surface);border:1.5px solid var(--green);border-radius:12px;padding:36px 40px">
+          <div style="font-size:32px;margin-bottom:12px">⚙️</div>
+          <h2 style="font-size:20px;font-weight:700;margin-bottom:10px">Oppsett kreves</h2>
+          <p style="color:var(--muted);font-size:14px;margin-bottom:20px">Supabase-tabellene er ikke opprettet ennå. Kjør <b>setup.bat</b> — SQL kopieres til utklippstavlen og Supabase åpnes automatisk.</p>
+          <div style="background:var(--surface2);border-radius:8px;padding:14px 16px;font-family:monospace;font-size:12px;color:var(--green);margin-bottom:20px">
+            C:\\Users\\Laptop\\crm\\setup.bat
+          </div>
+          <ol style="color:var(--muted);font-size:13px;line-height:2;padding-left:18px">
+            <li>Dobbelklikk <b>setup.bat</b></li>
+            <li>Logg inn på Supabase (strategioai@strategioai.com)</li>
+            <li>Lim inn SQL (Ctrl+V) og trykk <b>Run</b></li>
+            <li>Kom tilbake og <a href="/" style="color:var(--green)">last siden på nytt</a></li>
+          </ol>
+        </div>`;
+      document.getElementById('topbar-actions').innerHTML = '';
+      return;
+    }
+  } catch(e) {}
+  render();
+}
+boot();
+</script>
+</body>
+</html>
