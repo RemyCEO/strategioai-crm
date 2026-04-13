@@ -91,6 +91,11 @@ def init_db():
                 created_at TEXT DEFAULT (now() AT TIME ZONE 'utc'),
                 FOREIGN KEY (contact_id) REFERENCES contacts(id)
             );
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT now()
+            );
         """)
         # Migrasjon: legg til kolonner hvis de mangler
         cur.execute("""
@@ -543,7 +548,7 @@ def gmail_client_config():
 
 def _gmail_token_db_get():
     try:
-        conn = get_db()
+        conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         cur.execute("SELECT value FROM app_settings WHERE key = 'gmail_token'")
         row = cur.fetchone()
@@ -554,7 +559,7 @@ def _gmail_token_db_get():
 
 def _gmail_token_db_set(token, refresh_token):
     try:
-        conn = get_db()
+        conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         data = json.dumps({"token": token, "refresh_token": refresh_token})
         cur.execute("""
