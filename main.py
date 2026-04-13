@@ -609,9 +609,9 @@ def gmail_auth():
     return {"url": auth_url}
 
 @app.get("/api/gmail/callback")
-def gmail_callback(code: str, state: str = None):
-    import requests as _req
-    resp = _req.post("https://oauth2.googleapis.com/token", data={
+def gmail_callback(code: str, state: str = None, iss: str = None, scope: str = None):
+    import httpx as _httpx
+    resp = _httpx.post("https://oauth2.googleapis.com/token", data={
         "code": code,
         "client_id": GMAIL_CLIENT_ID,
         "client_secret": GMAIL_CLIENT_SECRET,
