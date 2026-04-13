@@ -179,6 +179,7 @@ tbody td { padding:12px 14px; font-size:13px; }
     <div class="nav-item" onclick="showView('pipeline')"><span class="icon">🔀</span> Pipeline</div>
     <div class="nav-item" onclick="showView('stripe')"><span class="icon">💳</span> Stripe</div>
     <div class="nav-item" id="nav-gmail" onclick="showView('gmail')"><span class="icon">📧</span> Gmail <span id="gmail-dot" style="display:none;width:7px;height:7px;background:#22c55e;border-radius:50%;margin-left:auto"></span></div>
+    <div class="nav-item" onclick="showView('maler')"><span class="icon">📝</span> Maler</div>
   </nav>
 </div>
 
@@ -312,12 +313,29 @@ tbody td { padding:12px 14px; font-size:13px; }
   <div class="modal" id="modal-gmail" style="display:none;width:520px">
     <h2>Skriv e-post</h2>
     <div class="form-group"><label>Til</label><input id="g-to" placeholder="kunde@firma.no"></div>
+    <div style="margin-bottom:10px;position:relative">
+      <button class="btn btn-ghost btn-sm" onclick="toggleTemplatePicker()" type="button" style="width:100%;text-align:left">📝 Bruk mal</button>
+      <div id="template-picker" style="display:none;position:absolute;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:7px;z-index:200;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        <div id="template-picker-list" style="padding:4px 0"></div>
+      </div>
+    </div>
     <div class="form-group"><label>Emne</label><input id="g-subject" placeholder="Tilbud fra StrategioAI"></div>
     <div class="form-group"><label>Melding</label><textarea id="g-body" style="min-height:160px" placeholder="Hei..."></textarea></div>
     <input type="hidden" id="g-contact-id">
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
       <button class="btn btn-green" onclick="sendGmail()">Send via Gmail</button>
+    </div>
+  </div>
+
+  <!-- Ny mal -->
+  <div class="modal" id="modal-ny-mal" style="display:none;width:520px">
+    <h2>Ny e-postmal</h2>
+    <div class="form-group"><label>Emne</label><input id="nm-subject" placeholder="Tilbud fra StrategioAI"></div>
+    <div class="form-group"><label>Melding</label><textarea id="nm-body" style="min-height:200px" placeholder="Hei..."></textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
+      <button class="btn btn-green" onclick="saveNyMal()">Lagre mal</button>
     </div>
   </div>
 
@@ -334,9 +352,10 @@ let panelTab = 'info';
 function showView(view) {
   currentView = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','contacts','deals','pipeline','stripe','gmail'].indexOf(view)].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail' };
-  document.getElementById('view-title').textContent = titles[view];
+  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','maler'].indexOf(view);
+  if (navIdx >= 0) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
+  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', maler:'E-postmaler' };
+  document.getElementById('view-title').textContent = titles[view] || view;
   closePanel();
   render();
 }
@@ -354,6 +373,7 @@ async function render() {
   else if (currentView === 'pipeline') { actions.innerHTML=''; await renderPipeline(); }
   else if (currentView === 'stripe') { actions.innerHTML=`<button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer alle til CRM</button>`; await renderStripe(); }
   else if (currentView === 'gmail') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openComposeGmail()">✉️ Skriv e-post</button>`; await renderGmail(); }
+  else if (currentView === 'maler') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal()">+ Ny mal</button>`; await renderMaler(); }
 }
 
 // --- DASHBOARD ---
@@ -938,6 +958,94 @@ async function sendGmail() {
     alert('Feil ved sending: ' + detail);
   }
 }
+
+// --- MALER ---
+async function renderMaler() {
+  const templates = await api('/api/email-templates');
+  const content = document.getElementById('content');
+  if (!templates || templates.length === 0) {
+    content.innerHTML = `<div class="empty"><div class="emoji">📝</div><p>Ingen maler ennå. Klikk "+ Ny mal" for å lage en.</p></div>`;
+    return;
+  }
+  content.innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header">
+        <span style="font-size:13px;font-weight:600">${templates.length} mal${templates.length !== 1 ? 'er' : ''}</span>
+      </div>
+      <table>
+        <thead><tr><th>Navn / Emne</th><th>Forhåndsvisning</th><th style="width:80px"></th></tr></thead>
+        <tbody>
+          ${templates.map(t => `
+            <tr>
+              <td><strong>${t.name}</strong></td>
+              <td style="color:var(--muted);font-size:12px">${t.body.substring(0,80).replace(/\r?\n/g,' ')}…</td>
+              <td>
+                <button class="btn btn-danger btn-sm" onclick="deleteMal('${t.id}')">Slett</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function deleteMal(id) {
+  if (!confirm('Slett denne malen?')) return;
+  await api(`/api/email-templates/${id}`, 'DELETE');
+  renderMaler();
+}
+
+let _malerCache = null;
+
+async function toggleTemplatePicker() {
+  const picker = document.getElementById('template-picker');
+  if (picker.style.display !== 'none') {
+    picker.style.display = 'none';
+    return;
+  }
+  const list = document.getElementById('template-picker-list');
+  list.innerHTML = `<div style="padding:10px 14px;color:var(--muted);font-size:12px">Laster...</div>`;
+  picker.style.display = 'block';
+  const templates = await api('/api/email-templates');
+  _malerCache = templates;
+  if (!templates || templates.length === 0) {
+    list.innerHTML = `<div style="padding:10px 14px;color:var(--muted);font-size:12px">Ingen maler funnet</div>`;
+    return;
+  }
+  list.innerHTML = templates.map(t => `
+    <div onclick="loadTemplateIntoCompose(${JSON.stringify(t).replace(/</g,'\\u003c')})"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px"
+      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <div style="font-weight:600">${t.name}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${t.body.substring(0,60).replace(/\r?\n/g,' ')}…</div>
+    </div>`).join('');
+}
+
+function loadTemplateIntoCompose(t) {
+  document.getElementById('g-subject').value = t.subject;
+  document.getElementById('g-body').value = t.body;
+  document.getElementById('template-picker').style.display = 'none';
+}
+
+function openNyMal() {
+  const name = prompt('Navn på malen:');
+  if (!name) return;
+  _nyMalNavn = name;
+  document.getElementById('nm-subject').value = '';
+  document.getElementById('nm-body').value = '';
+  showModal('modal-ny-mal');
+}
+
+let _nyMalNavn = '';
+
+async function saveNyMal() {
+  const subject = document.getElementById('nm-subject').value.trim();
+  const body = document.getElementById('nm-body').value.trim();
+  if (!subject || !body) return alert('Emne og melding er påkrevd');
+  await api('/api/email-templates', 'POST', { name: _nyMalNavn, subject, body });
+  closeModal();
+  if (currentView === 'maler') renderMaler();
+}
+
 
 // --- UTILS ---
 async function api(url, method='GET', body=null) {

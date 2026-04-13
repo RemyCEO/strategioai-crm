@@ -97,6 +97,34 @@ def init_db():
                 updated_at TIMESTAMPTZ DEFAULT now()
             );
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS email_templates (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
+            );
+        """)
+        # Seed templates fra gmail_templates.json hvis tabellen er tom
+        cur.execute("SELECT COUNT(*) FROM email_templates")
+        count = cur.fetchone()["count"]
+        if count == 0:
+            templates_path = os.path.join(os.path.dirname(__file__), "gmail_templates.json")
+            if os.path.exists(templates_path):
+                with open(templates_path, encoding="utf-8") as f:
+                    raw = json.load(f)
+                seen_subjects = set()
+                skip_subjects = {"Laras Kaker admin"}
+                for t in raw:
+                    subj = t["subject"]
+                    if subj in skip_subjects or subj in seen_subjects:
+                        continue
+                    seen_subjects.add(subj)
+                    cur.execute(
+                        "INSERT INTO email_templates (id, name, subject, body) VALUES (%s,%s,%s,%s)",
+                        (str(uuid.uuid4()), subj, subj, t["body"])
+                    )
         # Migrasjon: legg til kolonner hvis de mangler
         cur.execute("""
             DO $$
@@ -168,6 +196,11 @@ class Activity(BaseModel):
     deal_id: str = None
     type: str
     note: str = None
+
+class EmailTemplate(BaseModel):
+    name: str
+    subject: str
+    body: str
 
 
 # --- Frontend ---
@@ -728,6 +761,37 @@ async def gmail_send(data: GmailSend):
                 "INSERT INTO activities (id, contact_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s)",
                 (new_id, data.contact_id, "email", f"Gmail sendt til {data.to} — {data.subject}", now)
             )
+    return {"ok": True}
+
+
+# --- Email Templates ---
+
+@app.get("/api/email-templates")
+def get_email_templates():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM email_templates ORDER BY created_at ASC")
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/api/email-templates")
+def create_email_template(t: EmailTemplate):
+    new_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO email_templates (id, name, subject, body, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *",
+            (new_id, t.name, t.subject, t.body, now)
+        )
+        row = cur.fetchone()
+    return dict(row)
+
+@app.delete("/api/email-templates/{id}")
+def delete_email_template(id: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM email_templates WHERE id=%s", (id,))
     return {"ok": True}
 
 
