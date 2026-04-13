@@ -934,7 +934,8 @@ async function sendGmail() {
     alert('E-post sendt!');
     if (activePanelId) openPanel(activePanelId, 'gmail');
   } else {
-    alert('Feil ved sending: ' + (data.detail || r.status));
+    const detail = typeof data.detail === 'object' ? JSON.stringify(data.detail) : (data.detail || r.status);
+    alert('Feil ved sending: ' + detail);
   }
 }
 
