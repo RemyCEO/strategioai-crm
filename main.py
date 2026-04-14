@@ -958,12 +958,9 @@ def stripe_status():
     if not STRIPE_SECRET_KEY:
         return {"connected": False, "reason": "no_key"}
     try:
-        acct = stripe.Account.retrieve()
-        return {
-            "connected": True,
-            "account_id": acct.id,
-            "email": (acct.get("email") or ""),
-        }
+        # Use Customer.list instead of Account.retrieve — works with restricted keys too
+        stripe.Customer.list(limit=1)
+        return {"connected": True, "account_id": "", "email": ""}
     except stripe.error.AuthenticationError:
         return {"connected": False, "reason": "invalid_key"}
     except Exception as e:
