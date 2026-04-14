@@ -279,7 +279,7 @@ tbody td:first-child { color:var(--text); }
     <div class="nav-label">Oversikt</div>
     <div class="nav-item active" onclick="showView('dashboard')"><span class="icon">📊</span> Dashboard</div>
     <div class="nav-label">Salg</div>
-    <div class="nav-item" onclick="showView('contacts')"><span class="icon">👥</span> Kontakter</div>
+    <div class="nav-item" onclick="showView('contacts')"><span class="icon">👥</span> Leads</div>
     <div class="nav-item" onclick="showView('deals')"><span class="icon">💼</span> Deals</div>
     <div class="nav-item" onclick="showView('pipeline')"><span class="icon">🔀</span> Pipeline</div>
     <div class="nav-label">Integrasjoner</div>
@@ -317,7 +317,7 @@ tbody td:first-child { color:var(--text); }
 
   <!-- Ny kontakt -->
   <div class="modal" id="modal-contact" style="display:none">
-    <h2 id="modal-contact-title">Ny kontakt</h2>
+    <h2 id="modal-contact-title">Ny lead</h2>
     <div class="form-row">
       <div class="form-group"><label>Navn *</label><input id="c-name" placeholder="Ola Nordmann"></div>
       <div class="form-group"><label>Firma</label><input id="c-company" placeholder="Burger AS"></div>
@@ -549,7 +549,7 @@ function showView(view) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','maler','ordrebekreftelser'].indexOf(view);
   if (navIdx >= 0) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Kontakter', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
+  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
   document.getElementById('view-title').textContent = titles[view] || view;
   closePanel();
   render();
@@ -562,7 +562,7 @@ async function render() {
     actions.innerHTML=`
       <button class="btn btn-ghost btn-sm" onclick="exportCSV()" style="color:#4ade80;border-color:rgba(34,197,94,.3)">↓ CSV</button>
       <button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer fra Stripe</button>
-      <button class="btn btn-green" onclick="openNewContact()">+ Ny kontakt</button>`;
+      <button class="btn btn-green" onclick="openNewContact()">+ Ny lead</button>`;
     await renderContacts();
   }
   else if (currentView === 'deals') { actions.innerHTML=''; await renderDeals(); }
@@ -584,7 +584,7 @@ async function renderDashboard() {
   const catEntries = Object.entries(s.by_category || {}).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
   const catRow = catEntries.length === 0 ? '' : `
     <div style="margin-bottom:24px">
-      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:10px">Kontakter per kategori</div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:10px">Leads per kategori</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         ${catEntries.map(([cat,count]) => `
           <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;transition:.15s" onclick="contactCategoryFilter='${cat}';showView('contacts')" onmouseover="this.style.borderColor='rgba(34,197,94,.3)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -612,7 +612,7 @@ async function renderDashboard() {
   content.innerHTML = `
     <div class="stats-grid" style="grid-template-columns:repeat(5,1fr)">
       <div class="stat-card">
-        <div class="label">Totale kontakter</div>
+        <div class="label">Totale leads</div>
         <div class="value">${s.total_contacts}</div>
         <div class="sub">Alle leads og kunder</div>
       </div>
@@ -664,6 +664,7 @@ const CATEGORIES = {
 
 let _allContacts = [];
 let _selectedContacts = new Set();
+let _categoryStats = {};
 
 async function renderContacts(resetPage = false) {
   if (resetPage) { contactPage = 0; _selectedContacts.clear(); _renderBulkBar(); }
@@ -673,8 +674,9 @@ async function renderContacts(resetPage = false) {
   if (contactCategoryFilter) params.push(`category=${encodeURIComponent(contactCategoryFilter)}`);
   if (contactSearch) params.push(`search=${encodeURIComponent(contactSearch)}`);
   if (params.length) url += '?' + params.join('&');
-  _allContacts = await api(url) || [];
-
+  const [contacts, stats] = await Promise.all([api(url), api('/api/stats')]);
+  _allContacts = contacts || [];
+  _categoryStats = stats?.by_category || {};
   _renderContactsPage();
 }
 
@@ -688,7 +690,7 @@ function _renderContactsPage() {
 
   const pagination = totalPages <= 1 ? '' : `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--border);font-size:13px">
-      <span style="color:var(--muted)">${start}–${end} av ${total} kontakter</span>
+      <span style="color:var(--muted)">${start}–${end} av ${total} leads</span>
       <div style="display:flex;gap:6px;align-items:center">
         <button class="btn btn-ghost btn-sm" onclick="contactPage=0;_renderContactsPage()" ${contactPage===0?'disabled':''}>«</button>
         <button class="btn btn-ghost btn-sm" onclick="contactPage--;_renderContactsPage()" ${contactPage===0?'disabled':''}>‹ Forrige</button>
@@ -698,22 +700,44 @@ function _renderContactsPage() {
       </div>
     </div>`;
 
+  // Category pills — vis kun kategorier som har leads
+  const catPills = Object.entries(_categoryStats).sort((a,b)=>b[1]-a[1]).map(([cat,count]) => {
+    const active = contactCategoryFilter === cat;
+    return `<button class="btn btn-sm" style="
+        border:1px solid ${active?'var(--green)':'var(--border)'};
+        background:${active?'rgba(34,197,94,.15)':'transparent'};
+        color:${active?'var(--green)':'var(--muted)'};
+        display:inline-flex;align-items:center;gap:5px;white-space:nowrap"
+      onclick="contactCategoryFilter='${active?'':cat}';renderContacts(true)">
+      ${CATEGORIES[cat]||cat}
+      <span style="background:${active?'rgba(34,197,94,.25)':'var(--surface3)'};border-radius:20px;padding:0 6px;font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--muted)'}">${count}</span>
+    </button>`;
+  }).join('');
+
+  const activeFilters = (contactFilter || contactCategoryFilter || contactSearch) ? `
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--muted);font-weight:600">Aktive filtre:</span>
+      ${contactCategoryFilter ? `<span style="background:rgba(34,197,94,.12);color:var(--green);padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${CATEGORIES[contactCategoryFilter]||contactCategoryFilter} <span onclick="contactCategoryFilter='';renderContacts(true)" style="cursor:pointer;opacity:.7">✕</span></span>` : ''}
+      ${contactFilter ? `<span style="background:rgba(99,102,241,.12);color:#a5b4fc;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${contactFilter} <span onclick="contactFilter='';renderContacts(true)" style="cursor:pointer;opacity:.7">✕</span></span>` : ''}
+      ${contactSearch ? `<span style="background:rgba(245,158,11,.12);color:#f59e0b;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">"${contactSearch}" <span onclick="contactSearch='';renderContacts(true)" style="cursor:pointer;opacity:.7">✕</span></span>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick="contactFilter='';contactCategoryFilter='';contactSearch='';renderContacts(true)">Nullstill alle</button>
+    </div>` : '';
+
   document.getElementById('content').innerHTML = `
-    <div class="table-wrap">
+    ${catPills ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${catPills}</div>` : ''}
+    ${activeFilters}
+    <div class="table-wrap" style="margin-top:${catPills||activeFilters?'10px':'0'}">
       <div class="table-header">
         <input id="search-input" placeholder="Søk navn, firma, e-post..." value="${contactSearch}" oninput="contactSearch=this.value; renderContacts(true)">
         <div style="display:flex;gap:8px">
-          <select onchange="contactCategoryFilter=this.value; renderContacts(true)">
-            <option value="">Alle kategorier</option>
-            ${Object.entries(CATEGORIES).map(([v,l])=>`<option value="${v}" ${contactCategoryFilter===v?'selected':''}>${l}</option>`).join('')}
-          </select>
           <select onchange="contactFilter=this.value; renderContacts(true)">
             <option value="">Alle statuser</option>
             ${['ny','kontaktet','møte','tilbud','kunde','tapt'].map(s=>`<option value="${s}" ${contactFilter===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
           </select>
+          <span style="color:var(--muted);font-size:13px;padding:6px 0">${total} lead${total!==1?'s':''}</span>
         </div>
       </div>
-      ${total === 0 ? `<div class="empty"><div class="emoji">📭</div><p>Ingen kontakter funnet</p></div>` : `
+      ${total === 0 ? `<div class="empty"><div class="emoji">📭</div><p>Ingen leads funnet${contactCategoryFilter?' i kategorien '+CATEGORIES[contactCategoryFilter]:''}</p></div>` : `
       <table>
         <thead><tr>
           <th style="width:36px;padding-left:14px"><input type="checkbox" id="select-all-cb" onchange="toggleAllContacts(this.checked)" style="accent-color:var(--green);cursor:pointer"></th>
@@ -725,7 +749,7 @@ function _renderContactsPage() {
               <td style="padding-left:14px" onclick="event.stopPropagation()"><input type="checkbox" class="contact-cb" value="${c.id}" onchange="toggleContactSelect('${c.id}',this.checked)" ${_selectedContacts.has(c.id)?'checked':''} style="accent-color:var(--green);cursor:pointer"></td>
               <td><strong>${c.name}</strong></td>
               <td>${c.company || '—'}</td>
-              <td>${c.category ? `<span class="cat-badge">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+              <td>${c.category ? `<span class="cat-badge" style="cursor:pointer" onclick="event.stopPropagation();contactCategoryFilter='${c.category}';renderContacts(true)">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
               <td>${c.email || '—'}</td>
               <td>${c.phone || '—'}</td>
               <td><span class="badge ${c.status}">${c.status}</span></td>
@@ -747,7 +771,7 @@ async function renderDeals() {
   function dealTable(rows) {
     if (rows.length === 0) return `<div style="padding:16px;font-size:12px;color:var(--muted)">Ingen</div>`;
     return `<table>
-      <thead><tr><th>Tittel</th><th>Kontakt</th><th>Kategori</th><th>Pakke</th><th>Verdi</th><th>Status</th><th>Dato</th></tr></thead>
+      <thead><tr><th>Tittel</th><th>Lead</th><th>Kategori</th><th>Pakke</th><th>Verdi</th><th>Status</th><th>Dato</th></tr></thead>
       <tbody>
         ${rows.map(d => `
           <tr onclick="openPanel('${d.contact_id}')">
@@ -798,7 +822,7 @@ async function renderPipeline() {
         <div class="pipeline-col">
           <div class="pipeline-col-header">
             <div class="col-label" style="color:${colors[s]}">${labels[s]}</div>
-            <div class="col-count">${grouped[s].length} kontakt${grouped[s].length !== 1 ? 'er' : ''}</div>
+            <div class="col-count">${grouped[s].length} lead${grouped[s].length !== 1 ? 's' : ''}</div>
           </div>
           <div class="pipeline-cards">
             ${grouped[s].length === 0 ? `<div style="font-size:11px;color:var(--muted);text-align:center;padding:12px 0">Tom</div>` :
@@ -986,6 +1010,7 @@ async function loadStripePanel(email) {
 function closePanel() {
   document.getElementById('contact-panel').classList.remove('open');
   activePanelId = null;
+  if (currentView !== 'contacts') { const b = document.getElementById('bulk-bar'); if(b) b.style.display='none'; }
 }
 
 // --- STRIPE VIEW ---
@@ -1298,7 +1323,7 @@ async function stripeCreateInvoice() {
 // --- MODALS ---
 function openNewContact() {
   editContactId = null;
-  document.getElementById('modal-contact-title').textContent = 'Ny kontakt';
+  document.getElementById('modal-contact-title').textContent = 'Ny lead';
   ['name','company','email','phone','notes'].forEach(f => document.getElementById('c-'+f).value = '');
   document.getElementById('c-source').value = 'manuell';
   document.getElementById('c-status').value = 'ny';
@@ -1311,7 +1336,7 @@ async function openEditContact(id) {
   const c = all.find(x => x.id === id);
   if (!c) return;
   editContactId = id;
-  document.getElementById('modal-contact-title').textContent = 'Rediger kontakt';
+  document.getElementById('modal-contact-title').textContent = 'Rediger lead';
   document.getElementById('c-name').value = c.name || '';
   document.getElementById('c-company').value = c.company || '';
   document.getElementById('c-email').value = c.email || '';
@@ -1410,7 +1435,7 @@ async function saveActivity() {
 }
 
 async function deleteContact(id) {
-  if (!confirm('Slett kontakt og all tilhørende data?')) return;
+  if (!confirm('Slett lead og all tilhørende data?')) return;
   await api(`/api/contacts/${id}`, 'DELETE');
   closePanel();
   render();
@@ -1821,7 +1846,7 @@ function _renderBulkBar() {
   if (!bar) return;
   if (_selectedContacts.size === 0) { bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
-  document.getElementById('bulk-count').textContent = _selectedContacts.size + ' kontakter valgt';
+  document.getElementById('bulk-count').textContent = _selectedContacts.size + ' leads valgt';
 }
 
 function toggleContactSelect(id, checked) {
@@ -1862,7 +1887,7 @@ function clearBulkSelection() {
 
 // --- CSV EXPORT ---
 function exportCSV() {
-  if (_allContacts.length === 0) { alert('Ingen kontakter å eksportere. Last kontakter-siden først.'); return; }
+  if (_allContacts.length === 0) { alert('Ingen leads å eksportere. Åpne Leads-siden først.'); return; }
   const headers = ['Navn','Firma','Kategori','E-post','Telefon','Status','Kilde','Opprettet'];
   const rows = _allContacts.map(c => [
     c.name||'', c.company||'', c.category||'', c.email||'',
@@ -1873,7 +1898,7 @@ function exportCSV() {
   const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `kontakter_${new Date().toISOString().slice(0,10)}.csv`;
+  a.href = url; a.download = `leads_${new Date().toISOString().slice(0,10)}.csv`;
   a.click(); URL.revokeObjectURL(url);
 }
 
