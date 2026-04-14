@@ -480,23 +480,81 @@ def stripe_ok():
     if not STRIPE_SECRET_KEY:
         raise HTTPException(400, "STRIPE_SECRET_KEY mangler i .env")
 
+@app.get("/api/stripe/summary")
+def stripe_summary():
+    stripe_ok()
+    subs = stripe.Subscription.list(status="active", limit=100)
+    mrr = 0.0
+    active_sub_count = 0
+    for s in subs.auto_paging_iter():
+        active_sub_count += 1
+        item = s["items"]["data"][0] if s["items"]["data"] else {}
+        price = item.get("price", {})
+        amount = (price.get("unit_amount") or 0) / 100
+        interval = (price.get("recurring") or {}).get("interval", "month")
+        mrr += amount / 12 if interval == "year" else amount
+    charges = stripe.Charge.list(limit=50, expand=["data.billing_details"])
+    total_revenue = 0.0
+    recent_payments = []
+    for ch in charges.auto_paging_iter():
+        if ch.status == "succeeded":
+            total_revenue += ch.amount / 100
+        recent_payments.append({
+            "id": ch.id,
+            "amount": ch.amount / 100,
+            "currency": ch.currency.upper(),
+            "status": ch.status,
+            "email": (ch.billing_details or {}).get("email") or ch.receipt_email,
+            "description": ch.description,
+            "date": datetime.fromtimestamp(ch.created, tz=timezone.utc).isoformat(),
+            "receipt_url": ch.receipt_url,
+            "refunded": ch.refunded,
+        })
+    return {
+        "mrr": round(mrr, 2),
+        "arr": round(mrr * 12, 2),
+        "active_subs": active_sub_count,
+        "total_revenue": round(total_revenue, 2),
+        "recent_payments": recent_payments[:20],
+    }
+
 @app.get("/api/stripe/customers")
 def stripe_customers(limit: int = 100):
     stripe_ok()
+    # Fetch all active subs indexed by customer id
+    subs = stripe.Subscription.list(status="active", limit=100)
+    sub_by_cid = {}
+    for s in subs.auto_paging_iter():
+        cid = s.customer if isinstance(s.customer, str) else s.customer.id
+        item = s["items"]["data"][0] if s["items"]["data"] else {}
+        price = item.get("price", {})
+        amount = (price.get("unit_amount") or 0) / 100
+        interval = (price.get("recurring") or {}).get("interval", "month")
+        sub_by_cid[cid] = {
+            "status": s.status,
+            "monthly": round(amount / 12 if interval == "year" else amount, 2),
+            "plan": price.get("nickname") or price.get("id", ""),
+            "sub_id": s.id,
+            "period_end": datetime.fromtimestamp(s.current_period_end, tz=timezone.utc).isoformat(),
+        }
     customers = stripe.Customer.list(limit=limit)
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("SELECT email FROM contacts WHERE email IS NOT NULL")
-        crm_emails = {r["email"] for r in cur.fetchall()}
+        crm_emails = {r["email"].lower() for r in cur.fetchall()}
     result = []
     for c in customers.auto_paging_iter():
+        sub = sub_by_cid.get(c.id)
         result.append({
             "stripe_id": c.id,
             "name": c.name,
             "email": c.email,
             "phone": c.phone,
             "created": datetime.fromtimestamp(c.created, tz=timezone.utc).isoformat(),
-            "in_crm": (c.email or "").lower() in {e.lower() for e in crm_emails},
+            "in_crm": (c.email or "").lower() in crm_emails,
+            "subscription": sub,
+            "balance": (c.balance or 0) / 100,
+            "description": c.description,
         })
     return result
 
@@ -595,6 +653,108 @@ def stripe_invoices(email: str):
         })
     return result
 
+class RefundRequest(BaseModel):
+    charge_id: str
+    amount: float = None  # None = full refund
+
+@app.post("/api/stripe/refund")
+def stripe_refund(data: RefundRequest):
+    stripe_ok()
+    params = {"charge": data.charge_id}
+    if data.amount:
+        params["amount"] = int(data.amount * 100)
+    refund = stripe.Refund.create(**params)
+    # Log CRM activity if contact found
+    charge = stripe.Charge.retrieve(data.charge_id)
+    email = (charge.billing_details or {}).get("email") or charge.receipt_email
+    if email:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
+            row = cur.fetchone()
+            if row:
+                now = datetime.now(timezone.utc).isoformat()
+                amount_str = f"{refund.amount/100:,.0f} {charge.currency.upper()}"
+                cur.execute(
+                    "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (str(uuid.uuid4()), row["id"], None, "betaling", f"Refusjon sendt: {amount_str}", now)
+                )
+    return {"ok": True, "refund_id": refund.id, "status": refund.status, "amount": refund.amount / 100}
+
+class CancelSubRequest(BaseModel):
+    subscription_id: str
+
+@app.post("/api/stripe/subscriptions/cancel")
+def stripe_cancel_sub(data: CancelSubRequest):
+    stripe_ok()
+    sub = stripe.Subscription.modify(data.subscription_id, cancel_at_period_end=True)
+    cancel_at = datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc).isoformat()
+    # Find customer email and log activity
+    cust = stripe.Customer.retrieve(sub.customer if isinstance(sub.customer, str) else sub.customer.id)
+    email = cust.get("email")
+    if email:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
+            row = cur.fetchone()
+            if row:
+                now = datetime.now(timezone.utc).isoformat()
+                cur.execute(
+                    "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (str(uuid.uuid4()), row["id"], None, "abonnement", f"Abonnement kansellert (avsluttes {cancel_at[:10]})", now)
+                )
+    return {"ok": True, "cancel_at": cancel_at}
+
+class InvoiceRemindRequest(BaseModel):
+    invoice_id: str
+
+@app.post("/api/stripe/invoices/remind")
+def stripe_invoice_remind(data: InvoiceRemindRequest):
+    stripe_ok()
+    inv = stripe.Invoice.retrieve(data.invoice_id)
+    if inv.status != "open":
+        raise HTTPException(400, f"Faktura er ikke åpen (status: {inv.status})")
+    stripe.Invoice.send_invoice(data.invoice_id)
+    return {"ok": True}
+
+class CreateInvoiceRequest(BaseModel):
+    email: str
+    amount: float
+    description: str
+    currency: str = "nok"
+    days_until_due: int = 14
+
+@app.post("/api/stripe/create-invoice")
+def stripe_create_invoice(data: CreateInvoiceRequest):
+    stripe_ok()
+    customers = stripe.Customer.list(email=data.email, limit=1)
+    if customers.data:
+        customer_id = customers.data[0].id
+    else:
+        cust = stripe.Customer.create(email=data.email)
+        customer_id = cust.id
+    stripe.InvoiceItem.create(
+        customer=customer_id,
+        amount=int(data.amount * 100),
+        currency=data.currency,
+        description=data.description,
+    )
+    invoice = stripe.Invoice.create(
+        customer=customer_id,
+        auto_advance=True,
+        collection_method="send_invoice",
+        days_until_due=data.days_until_due,
+    )
+    invoice = stripe.Invoice.finalize_invoice(invoice.id)
+    stripe.Invoice.send_invoice(invoice.id)
+    return {
+        "ok": True,
+        "invoice_id": invoice.id,
+        "hosted_url": invoice.hosted_invoice_url,
+        "pdf": invoice.invoice_pdf,
+        "status": invoice.status,
+    }
+
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -655,6 +815,27 @@ async def stripe_webhook(request: Request):
                             "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
                             (str(uuid.uuid4()), row["id"], None, "abonnement", "Stripe-abonnement kansellert", now)
                         )
+
+    elif etype == "invoice.payment_failed":
+        obj = event["data"]["object"]
+        customer_id = obj.get("customer")
+        amount = (obj.get("amount_due") or 0) / 100
+        currency = (obj.get("currency") or "nok").upper()
+        if customer_id:
+            cust = stripe.Customer.retrieve(customer_id)
+            email = cust.get("email")
+            if email:
+                with get_conn() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT id, name FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
+                    row = cur.fetchone()
+                    if row:
+                        now = datetime.now(timezone.utc).isoformat()
+                        cur.execute(
+                            "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                            (str(uuid.uuid4()), row["id"], None, "betaling", f"Stripe-betaling feilet: {amount:,.0f} {currency}", now)
+                        )
+                        await telegram(f"⚠️ Betaling feilet!\n<b>{row['name']}</b>\nBeløp: {amount:,.0f} {currency}")
 
     return {"ok": True}
 

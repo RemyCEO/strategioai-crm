@@ -904,16 +904,41 @@ async function loadStripePanel(email) {
     return;
   }
 
+  // Summary pills
+  const totalPaid = (payments||[]).filter(p=>p.status==='succeeded').reduce((a,p)=>a+p.amount,0);
+  const activeSub = subs && subs.find(s=>s.status==='active');
+  const lastPayment = (payments||[]).find(p=>p.status==='succeeded');
+  const summaryHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Totalt betalt</div>
+        <div style="font-weight:700;font-size:14px;color:var(--green)">${fmt(totalPaid)}</div>
+      </div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Abonnement</div>
+        <div style="font-weight:700;font-size:13px">${activeSub?fmt(activeSub.amount)+'/'+activeSub.interval:'Ingen'}</div>
+      </div>
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Siste betaling</div>
+        <div style="font-weight:700;font-size:13px">${lastPayment?fmtDate(lastPayment.date):'—'}</div>
+      </div>
+    </div>`;
+
+  const statusColor = { open:'#facc15', paid:'#4ade80', void:'#888', uncollectible:'#f87171', draft:'#888' };
+
   const subsHtml = (subs && subs.length > 0) ? `
     <div class="panel-section" style="margin-bottom:16px">
       <h3>Abonnementer</h3>
       ${subs.map(s => `
         <div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-bottom:6px">
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <div style="font-size:13px;font-weight:600">${s.plan || s.id}</div>
-            <span class="badge ${s.status}">${s.status}</span>
+            <div style="font-size:13px;font-weight:600">${s.plan||s.id}</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span class="badge ${s.status}">${s.status}</span>
+              ${s.status==='active'?`<button class="btn btn-danger btn-sm" style="font-size:10px;padding:3px 8px" onclick="stripeCancelSub('${s.id}')">Kanseller</button>`:''}
+            </div>
           </div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">${s.amount > 0 ? fmt(s.amount)+' / '+s.interval : ''} — fornyes ${fmtDate(s.current_period_end)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">${s.amount>0?fmt(s.amount)+' / '+s.interval:''} — fornyes ${fmtDate(s.current_period_end)}</div>
         </div>`).join('')}
     </div>` : '';
 
@@ -923,39 +948,39 @@ async function loadStripePanel(email) {
       ${payments.map(p => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
           <div>
-            <div style="font-size:12px;font-weight:600">${fmt(p.amount)} ${p.currency}</div>
-            <div style="font-size:11px;color:var(--muted)">${fmtDate(p.date)}${p.description ? ' · '+p.description : ''}</div>
+            <div style="font-size:12px;font-weight:600;color:${p.status==='succeeded'?'var(--green)':'var(--danger)'}">${fmt(p.amount)} ${p.currency}</div>
+            <div style="font-size:11px;color:var(--muted)">${fmtDate(p.date)}${p.description?' · '+p.description:''}</div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="badge ${p.status}">${p.status}</span>
-            ${p.receipt_url ? `<a href="${p.receipt_url}" target="_blank" style="color:var(--green);font-size:11px">Kvittering</a>` : ''}
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="badge ${p.status==='succeeded'?'vunnet':'tapt'}" style="font-size:10px">${p.status}</span>
+            ${p.receipt_url?`<a href="${p.receipt_url}" target="_blank" style="color:var(--green);font-size:11px">🧾</a>`:''}
+            ${p.status==='succeeded'?`<button class="btn btn-danger btn-sm" style="font-size:10px;padding:3px 8px" onclick="stripeRefund('${p.id}',${p.amount},'${p.currency}')">↩</button>`:''}
           </div>
         </div>`).join('')}
     </div>` : `<p style="font-size:12px;color:var(--muted)">Ingen betalinger funnet for ${email}</p>`;
 
-  const statusColor = { open: '#facc15', paid: '#4ade80', void: '#888', uncollectible: '#f87171', draft: '#888' };
   const invoicesHtml = (invoices && invoices.length > 0) ? `
     <div class="panel-section" style="margin-bottom:16px">
       <h3>Fakturaer</h3>
       ${invoices.map(inv => {
-        const overdue = inv.status === 'open' && inv.due_date && new Date(inv.due_date) < new Date();
-        return `<div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-bottom:6px;${overdue ? 'border-left:3px solid #f87171' : ''}">
+        const overdue = inv.status==='open' && inv.due_date && new Date(inv.due_date) < new Date();
+        return `<div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-bottom:6px;${overdue?'border-left:3px solid #f87171':''}">
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <div style="font-size:12px;font-weight:600">${inv.number || inv.id}</div>
-            <span style="font-size:11px;font-weight:700;color:${statusColor[inv.status]||'#888'}">${inv.status.toUpperCase()}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
-            <div style="font-size:11px;color:var(--muted)">
-              ${fmt(inv.amount_due)} ${inv.currency}
-              ${inv.due_date ? ` · Forfall: <span style="color:${overdue?'#f87171':'var(--muted)'};font-weight:${overdue?'700':'400'}">${fmtDate(inv.due_date)}${overdue?' ⚠️':''}</span>` : ''}
+            <div style="font-size:12px;font-weight:600">${inv.number||inv.id}</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="font-size:11px;font-weight:700;color:${statusColor[inv.status]||'#888'}">${inv.status.toUpperCase()}</span>
+              ${inv.invoice_pdf?`<a href="${inv.invoice_pdf}" target="_blank" style="color:var(--green);font-size:11px">PDF</a>`:''}
+              ${inv.status==='open'?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 8px" onclick="stripeRemindInvoice('${inv.id}')">📧 Send påminnelse</button>`:''}
             </div>
-            ${inv.invoice_pdf ? `<a href="${inv.invoice_pdf}" target="_blank" style="color:var(--green);font-size:11px">PDF</a>` : ''}
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px">
+            ${fmt(inv.amount_due)} ${inv.currency}${inv.due_date?` · Forfall: <span style="color:${overdue?'#f87171':'var(--muted)'};">${fmtDate(inv.due_date)}${overdue?' ⚠️':''}</span>`:''}
           </div>
         </div>`;
       }).join('')}
     </div>` : '';
 
-  el.innerHTML = subsHtml + invoicesHtml + paymentsHtml;
+  el.innerHTML = summaryHtml + subsHtml + invoicesHtml + paymentsHtml;
 }
 
 function closePanel() {
@@ -964,45 +989,165 @@ function closePanel() {
 }
 
 // --- STRIPE VIEW ---
-async function renderStripe() {
-  document.getElementById('content').innerHTML = `<div style="color:var(--muted);padding:40px;text-align:center">Laster Stripe-kunder...</div>`;
-  const customers = await api('/api/stripe/customers?limit=100');
+let _stripeTab = 'kunder';
+let _stripeCustomers = [];
+let _stripeSearch = '';
+let _stripeFilter = 'alle'; // alle | sub | ikke-crm
 
-  if (customers === null) {
-    document.getElementById('content').innerHTML = `
+async function renderStripe() {
+  const content = document.getElementById('content');
+  content.innerHTML = `<div style="color:var(--muted);padding:40px;text-align:center">Laster Stripe-data...</div>`;
+  const [summary, customers] = await Promise.all([
+    api('/api/stripe/summary'),
+    api('/api/stripe/customers?limit=100')
+  ]);
+
+  if (customers === null || summary === null) {
+    content.innerHTML = `
       <div style="max-width:540px;margin:60px auto;background:var(--surface);border:1.5px solid rgba(99,102,241,.4);border-radius:12px;padding:36px 40px">
         <div style="font-size:32px;margin-bottom:12px">💳</div>
         <h2 style="font-size:18px;font-weight:700;margin-bottom:10px">Stripe ikke konfigurert</h2>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Legg til API-nøkkelen i <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">C:\\Users\\Laptop\\crm\\.env</code>:</p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Legg til API-nøkkelen i miljøvariablene:</p>
         <div style="background:var(--surface2);border-radius:8px;padding:14px 16px;font-family:monospace;font-size:12px;color:#a5b4fc;margin-bottom:16px">STRIPE_SECRET_KEY=sk_live_...</div>
-        <p style="color:var(--muted);font-size:12px">Finn nøkkelen på <a href="https://dashboard.stripe.com/apikeys" target="_blank" style="color:var(--green)">dashboard.stripe.com/apikeys</a></p>
+        <p style="color:var(--muted);font-size:12px">Finn nøkkelen på dashboard.stripe.com/apikeys</p>
       </div>`;
     return;
   }
+  _stripeCustomers = customers;
+  _renderStripeView(summary);
+}
 
-  document.getElementById('content').innerHTML = `
-    <div class="table-wrap">
-      <div class="table-header">
-        <span style="font-size:13px;font-weight:600">${customers.length} Stripe-kunder</span>
-        <span style="font-size:12px;color:var(--muted)">${customers.filter(c=>c.in_crm).length} allerede i CRM</span>
-      </div>
-      ${customers.length === 0 ? `<div class="empty"><div class="emoji">💳</div><p>Ingen Stripe-kunder funnet</p></div>` : `
-      <table>
-        <thead><tr><th>Navn</th><th>E-post</th><th>Telefon</th><th>Registrert</th><th>CRM</th></tr></thead>
-        <tbody>
-          ${customers.map(c => `
-            <tr>
-              <td><strong>${c.name || '—'}</strong></td>
-              <td>${c.email || '—'}</td>
-              <td>${c.phone || '—'}</td>
-              <td style="color:var(--muted)">${fmtDate(c.created)}</td>
-              <td>${c.in_crm
-                ? `<span class="badge kunde" style="font-size:10px">✓ I CRM</span>`
-                : `<span class="badge ny" style="font-size:10px">Ikke importert</span>`}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`}
+function _renderStripeView(summary) {
+  const content = document.getElementById('content');
+  const s = summary || {};
+
+  const kpi = `
+    <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+      <div class="stat-card"><div class="label">MRR</div><div class="value green">${fmt(s.mrr||0)}</div><div class="sub">Månedlig gjentakende</div></div>
+      <div class="stat-card"><div class="label">ARR</div><div class="value green">${fmt(s.arr||0)}</div><div class="sub">Årlig gjentakende</div></div>
+      <div class="stat-card"><div class="label">Aktive abonnementer</div><div class="value">${s.active_subs||0}</div><div class="sub">Løpende subscriptions</div></div>
+      <div class="stat-card"><div class="label">Total omsetning</div><div class="value green">${fmt(s.total_revenue||0)}</div><div class="sub">Siste 50 betalinger</div></div>
     </div>`;
+
+  const tabs = `
+    <div class="tabs" style="margin-bottom:16px">
+      <div class="tab ${_stripeTab==='kunder'?'active':''}" onclick="_stripeTab='kunder';_renderStripeTab(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">👥 Kunder (${_stripeCustomers.length})</div>
+      <div class="tab ${_stripeTab==='betalinger'?'active':''}" onclick="_stripeTab='betalinger';_renderStripeTab(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">💸 Siste betalinger</div>
+      <div class="tab ${_stripeTab==='faktura'?'active':''}" onclick="_stripeTab='faktura';_renderStripeTab(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">📄 Opprett faktura</div>
+    </div>`;
+
+  content.innerHTML = kpi + tabs + `<div id="stripe-tab-content"></div>`;
+  _renderStripeTabContent(s);
+}
+
+function _renderStripeTab(s) {
+  _renderStripeTabContent(s);
+  // Update active tab highlight
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const views = ['kunder','betalinger','faktura'];
+    t.classList.toggle('active', views[i] === _stripeTab);
+  });
+}
+
+function _renderStripeTabContent(s) {
+  const el = document.getElementById('stripe-tab-content');
+  if (!el) return;
+
+  if (_stripeTab === 'kunder') {
+    const filterBar = `
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+        <input id="stripe-search" placeholder="Søk navn / e-post..." value="${_stripeSearch}"
+          oninput="_stripeSearch=this.value;_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})"
+          style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 12px;font-size:13px;width:240px;outline:none;font-family:inherit">
+        <button class="btn btn-sm ${_stripeFilter==='alle'?'btn-green':'btn-ghost'}" onclick="_stripeFilter='alle';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Alle</button>
+        <button class="btn btn-sm ${_stripeFilter==='sub'?'btn-green':'btn-ghost'}" onclick="_stripeFilter='sub';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Med abonnement</button>
+        <button class="btn btn-sm ${_stripeFilter==='ikke-crm'?'btn-green':'btn-ghost'}" onclick="_stripeFilter='ikke-crm';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Ikke i CRM</button>
+      </div>`;
+
+    let filtered = _stripeCustomers;
+    if (_stripeSearch) {
+      const q = _stripeSearch.toLowerCase();
+      filtered = filtered.filter(c => (c.name||'').toLowerCase().includes(q) || (c.email||'').toLowerCase().includes(q));
+    }
+    if (_stripeFilter === 'sub') filtered = filtered.filter(c => c.subscription);
+    if (_stripeFilter === 'ikke-crm') filtered = filtered.filter(c => !c.in_crm);
+
+    const table = filtered.length === 0
+      ? `<div class="empty"><div class="emoji">💳</div><p>Ingen kunder funnet</p></div>`
+      : `<table>
+          <thead><tr><th>Navn</th><th>E-post</th><th>Abonnement</th><th>MND</th><th>Registrert</th><th>CRM</th><th>Handlinger</th></tr></thead>
+          <tbody>
+            ${filtered.map(c => {
+              const sub = c.subscription;
+              const cj = JSON.stringify(c).replace(/</g,'\\u003c').replace(/"/g,'&quot;');
+              return `
+              <tr onclick="openStripeCustomer(${cj})" style="cursor:pointer">
+                <td><strong>${c.name||'—'}</strong>${c.description?`<div style="font-size:10px;color:var(--muted)">${c.description.substring(0,40)}</div>`:''}</td>
+                <td>${c.email||'—'}</td>
+                <td>${sub
+                  ? `<span class="badge active" style="font-size:10px">🔁 Aktiv</span> <span style="font-size:11px;color:var(--muted)">${(sub.plan||'').substring(0,20)}</span>`
+                  : `<span style="color:var(--muted);font-size:11px">Ingen</span>`}</td>
+                <td style="color:var(--green);font-weight:600">${sub ? fmt(sub.monthly) : '—'}</td>
+                <td style="color:var(--muted)">${fmtDate(c.created)}</td>
+                <td>${c.in_crm
+                  ? `<span class="badge kunde" style="font-size:10px">✓ CRM</span>`
+                  : `<span class="badge ny" style="font-size:10px">Ikke importert</span>`}</td>
+                <td onclick="event.stopPropagation()" style="white-space:nowrap">
+                  <a href="https://dashboard.stripe.com/customers/${c.stripe_id}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none;font-size:11px">↗ Stripe</a>
+                  ${!c.in_crm ? `<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="stripeImportOne(${cj})">+ CRM</button>` : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+
+    el.innerHTML = filterBar + `<div class="table-wrap">${table}</div>`;
+
+  } else if (_stripeTab === 'betalinger') {
+    const payments = s.recent_payments || [];
+    if (payments.length === 0) {
+      el.innerHTML = `<div class="empty"><div class="emoji">💸</div><p>Ingen betalinger funnet</p></div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="table-wrap">
+        <div class="table-header"><span style="font-size:13px;font-weight:600">Siste ${payments.length} betalinger</span></div>
+        <table>
+          <thead><tr><th>E-post</th><th>Beløp</th><th>Beskrivelse</th><th>Dato</th><th>Status</th><th>Handlinger</th></tr></thead>
+          <tbody>
+            ${payments.map(p => `
+              <tr>
+                <td>${p.email||'—'}</td>
+                <td style="font-weight:600;color:${p.status==='succeeded'?'var(--green)':'var(--muted)'}">${fmt(p.amount)} ${p.currency}</td>
+                <td style="color:var(--muted);font-size:12px">${(p.description||'—').substring(0,40)}</td>
+                <td style="color:var(--muted)">${fmtDate(p.date)}</td>
+                <td><span class="badge ${p.refunded?'tapt':p.status==='succeeded'?'vunnet':'tapt'}" style="font-size:10px">${p.refunded?'Refundert':p.status}</span></td>
+                <td style="white-space:nowrap">
+                  ${p.receipt_url ? `<a href="${p.receipt_url}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none;font-size:11px">🧾 Kvittering</a>` : ''}
+                  ${p.status==='succeeded'&&!p.refunded ? `<button class="btn btn-danger btn-sm" style="font-size:11px" onclick="stripeRefund('${p.id}',${p.amount},'${p.currency}')">↩ Refunder</button>` : ''}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+  } else if (_stripeTab === 'faktura') {
+    el.innerHTML = `
+      <div style="max-width:480px">
+        <div class="table-wrap" style="padding:24px">
+          <h3 style="font-size:14px;font-weight:700;margin-bottom:18px">Opprett og send faktura via Stripe</h3>
+          <div class="form-group"><label>E-post til kunde *</label><input id="inv-email" placeholder="kunde@firma.no" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;width:100%;outline:none;font-family:inherit"></div>
+          <div class="form-group"><label>Beløp (NOK eks. mva) *</label><input id="inv-amount" type="number" placeholder="4500" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;width:100%;outline:none;font-family:inherit"></div>
+          <div class="form-group"><label>Beskrivelse *</label><input id="inv-desc" placeholder="StrategioAI – Nettside løsning, mai 2026" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;width:100%;outline:none;font-family:inherit"></div>
+          <div class="form-group"><label>Betalingsfrist (dager)</label><input id="inv-days" type="number" value="14" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;width:100%;outline:none;font-family:inherit"></div>
+          <div style="margin-top:4px;padding:10px 12px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.15);border-radius:7px;font-size:12px;color:var(--muted);margin-bottom:16px">
+            💡 Stripe oppretter kunden automatisk hvis e-posten ikke finnes. Kunden mottar fakturaen direkte på e-post.
+          </div>
+          <button class="btn btn-green" onclick="stripeCreateInvoice()" style="width:100%">📄 Opprett og send faktura</button>
+          <div id="inv-result" style="margin-top:12px"></div>
+        </div>
+      </div>`;
+  }
 }
 
 async function stripeImport() {
@@ -1015,6 +1160,138 @@ async function stripeImport() {
   if (res) {
     alert(`✅ Importert ${res.imported} nye kunder\nHoppet over ${res.skipped} som allerede finnes`);
     render();
+  }
+}
+
+async function stripeImportOne(customer) {
+  const res = await api('/api/stripe/sync', 'POST');
+  if (res) { alert(`✅ Importert`); render(); }
+}
+
+function openStripeCustomer(c) {
+  const panel = document.getElementById('contact-panel');
+  document.getElementById('panel-name').textContent = c.name || c.email || '—';
+  document.getElementById('panel-company').textContent = c.email || '';
+  panel.classList.add('open');
+  activePanelId = null;
+
+  const sub = c.subscription;
+  const subHtml = sub ? `
+    <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Aktiv abonnement</div>
+          <div style="font-weight:700;font-size:14px;margin-top:2px">${fmt(sub.monthly)}/mnd</div>
+          <div style="font-size:11px;color:var(--muted)">${sub.plan||''} · fornyes ${fmtDate(sub.period_end)}</div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="stripeCancelSub('${sub.sub_id}')">Kanseller</button>
+      </div>
+    </div>` : `<div style="font-size:12px;color:var(--muted);margin-bottom:14px">Ingen aktiv abonnement</div>`;
+
+  document.getElementById('panel-body').innerHTML = `
+    <div class="panel-section">
+      <div class="info-grid">
+        <div class="info-item"><div class="key">Stripe ID</div><div class="val" style="font-size:11px;word-break:break-all">${c.stripe_id}</div></div>
+        <div class="info-item"><div class="key">Registrert</div><div class="val">${fmtDate(c.created)}</div></div>
+        ${c.phone ? `<div class="info-item"><div class="key">Telefon</div><div class="val">${c.phone}</div></div>` : ''}
+        ${c.balance !== 0 ? `<div class="info-item"><div class="key">Balanse</div><div class="val" style="color:${c.balance<0?'var(--danger)':'var(--green)'}">${fmt(c.balance)}</div></div>` : ''}
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Abonnement</h3>
+      ${subHtml}
+    </div>
+    <div class="panel-section" id="stripe-cust-payments">
+      <h3>Betalinger & Fakturaer</h3>
+      <div style="color:var(--muted);font-size:12px">Laster...</div>
+    </div>
+    <div style="display:flex;gap:8px;padding-top:8px">
+      <a href="https://dashboard.stripe.com/customers/${c.stripe_id}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none;flex:1;text-align:center">↗ Åpne i Stripe</a>
+      ${!c.in_crm ? `<button class="btn btn-green btn-sm" style="flex:1" onclick="stripeImportOne(${JSON.stringify(c).replace(/"/g,'&quot;')})">+ Importer til CRM</button>` : ''}
+    </div>`;
+
+  // Load payments + invoices async
+  Promise.all([
+    api(`/api/stripe/payments/${encodeURIComponent(c.email||'')}`),
+    api(`/api/stripe/invoices/${encodeURIComponent(c.email||'')}`)
+  ]).then(([payments, invoices]) => {
+    const el = document.getElementById('stripe-cust-payments');
+    if (!el) return;
+    const pHtml = (payments && payments.length > 0) ? payments.map(p => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:${p.status==='succeeded'?'var(--green)':'var(--danger)'}">${fmt(p.amount)} ${p.currency}</div>
+          <div style="font-size:11px;color:var(--muted)">${fmtDate(p.date)}${p.description?' · '+p.description:''}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="badge ${p.status==='succeeded'?'vunnet':'tapt'}" style="font-size:10px">${p.status}</span>
+          ${p.receipt_url?`<a href="${p.receipt_url}" target="_blank" style="color:var(--green);font-size:11px">🧾</a>`:''}
+          ${p.status==='succeeded'?`<button class="btn btn-danger btn-sm" style="font-size:10px;padding:3px 8px" onclick="stripeRefund('${p.id}',${p.amount},'${p.currency}')">↩</button>`:''}
+        </div>
+      </div>`).join('') : `<p style="font-size:12px;color:var(--muted)">Ingen betalinger</p>`;
+
+    const statusColor = { open:'#facc15', paid:'#4ade80', void:'#888', uncollectible:'#f87171' };
+    const iHtml = (invoices && invoices.length > 0) ? invoices.map(inv => {
+      const overdue = inv.status==='open' && inv.due_date && new Date(inv.due_date) < new Date();
+      return `<div style="background:var(--surface2);border-radius:7px;padding:9px 12px;margin-bottom:6px;${overdue?'border-left:3px solid #f87171':''}">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:12px;font-weight:600">${inv.number||inv.id}</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;font-weight:700;color:${statusColor[inv.status]||'#888'}">${inv.status.toUpperCase()}</span>
+            ${inv.invoice_pdf?`<a href="${inv.invoice_pdf}" target="_blank" style="color:var(--green);font-size:11px">PDF</a>`:''}
+            ${inv.status==='open'?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 7px" onclick="stripeRemindInvoice('${inv.id}')">📧 Send</button>`:''}
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">${fmt(inv.amount_due)} ${inv.currency}${inv.due_date?' · Forfall: '+fmtDate(inv.due_date):''}</div>
+      </div>`;}).join('') : `<p style="font-size:12px;color:var(--muted)">Ingen fakturaer</p>`;
+
+    el.innerHTML = `
+      <h3>Betalinger</h3>
+      ${pHtml}
+      <h3 style="margin-top:14px">Fakturaer</h3>
+      ${iHtml}`;
+  });
+}
+
+async function stripeRefund(chargeId, amount, currency) {
+  if (!confirm(`Refunder ${fmt(amount)} ${currency}?\n\nDette kan ikke angres.`)) return;
+  const res = await api('/api/stripe/refund', 'POST', { charge_id: chargeId });
+  if (res && res.ok) { alert(`✅ Refusjon sendt: ${fmt(res.amount)}`); render(); }
+  else alert('Feil ved refusjon');
+}
+
+async function stripeCancelSub(subId) {
+  if (!confirm('Kanseller abonnementet?\n\nDet vil bli avsluttet ved slutten av inneværende periode.')) return;
+  const res = await api('/api/stripe/subscriptions/cancel', 'POST', { subscription_id: subId });
+  if (res && res.ok) { alert(`✅ Abonnement kansellert\nAvsluttes: ${fmtDate(res.cancel_at)}`); render(); }
+  else alert('Feil ved kansellering');
+}
+
+async function stripeRemindInvoice(invoiceId) {
+  if (!confirm('Send fakturapåminnelse til kunden?')) return;
+  const res = await api('/api/stripe/invoices/remind', 'POST', { invoice_id: invoiceId });
+  if (res && res.ok) alert('✅ Påminnelse sendt!');
+  else alert('Feil ved sending');
+}
+
+async function stripeCreateInvoice() {
+  const email = document.getElementById('inv-email').value.trim();
+  const amount = parseFloat(document.getElementById('inv-amount').value);
+  const desc = document.getElementById('inv-desc').value.trim();
+  const days = parseInt(document.getElementById('inv-days').value) || 14;
+  if (!email || !amount || !desc) return alert('Fyll inn alle påkrevde felt');
+  const resultEl = document.getElementById('inv-result');
+  resultEl.innerHTML = `<div style="color:var(--muted);font-size:13px">Oppretter faktura...</div>`;
+  const res = await api('/api/stripe/create-invoice', 'POST', { email, amount, description: desc, days_until_due: days });
+  if (res && res.ok) {
+    resultEl.innerHTML = `
+      <div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);border-radius:8px;padding:12px 14px">
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px">✅ Faktura sendt!</div>
+        <div style="font-size:12px;color:var(--muted)">Status: ${res.status}</div>
+        ${res.hosted_url?`<a href="${res.hosted_url}" target="_blank" style="color:var(--green);font-size:12px;display:block;margin-top:4px">🔗 Vis faktura</a>`:''}
+      </div>`;
+  } else {
+    resultEl.innerHTML = `<div style="color:var(--danger);font-size:13px">Feil ved opprettelse av faktura</div>`;
   }
 }
 
