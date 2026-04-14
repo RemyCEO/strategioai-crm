@@ -595,6 +595,8 @@ async function renderDashboard() {
 let contactSearch = '';
 let contactFilter = '';
 let contactCategoryFilter = '';
+let contactPage = 0;
+const PAGE_SIZE = 50;
 
 const CATEGORIES = {
   gym:'🏋️ Gym', restaurant:'🍽️ Restaurant', pizza:'🍕 Pizza', 'kafé':'☕ Kafé/Bar',
@@ -603,37 +605,63 @@ const CATEGORIES = {
   konsulent:'💼 Konsulent', annet:'📌 Annet'
 };
 
-async function renderContacts() {
+let _allContacts = [];
+
+async function renderContacts(resetPage = false) {
+  if (resetPage) contactPage = 0;
   let url = '/api/contacts';
   const params = [];
   if (contactFilter) params.push(`status=${contactFilter}`);
   if (contactCategoryFilter) params.push(`category=${encodeURIComponent(contactCategoryFilter)}`);
   if (contactSearch) params.push(`search=${encodeURIComponent(contactSearch)}`);
   if (params.length) url += '?' + params.join('&');
-  const contacts = await api(url);
+  _allContacts = await api(url) || [];
+
+  _renderContactsPage();
+}
+
+function _renderContactsPage() {
+  const total = _allContacts.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  contactPage = Math.min(contactPage, totalPages - 1);
+  const page = _allContacts.slice(contactPage * PAGE_SIZE, (contactPage + 1) * PAGE_SIZE);
+  const start = contactPage * PAGE_SIZE + 1;
+  const end = Math.min((contactPage + 1) * PAGE_SIZE, total);
+
+  const pagination = totalPages <= 1 ? '' : `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--border);font-size:13px">
+      <span style="color:var(--muted)">${start}–${end} av ${total} kontakter</span>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-ghost btn-sm" onclick="contactPage=0;_renderContactsPage()" ${contactPage===0?'disabled':''}>«</button>
+        <button class="btn btn-ghost btn-sm" onclick="contactPage--;_renderContactsPage()" ${contactPage===0?'disabled':''}>‹ Forrige</button>
+        <span style="padding:4px 10px;background:var(--surface2);border-radius:6px;font-weight:600;color:var(--green)">${contactPage+1} / ${totalPages}</span>
+        <button class="btn btn-ghost btn-sm" onclick="contactPage++;_renderContactsPage()" ${contactPage>=totalPages-1?'disabled':''}>Neste ›</button>
+        <button class="btn btn-ghost btn-sm" onclick="contactPage=${totalPages-1};_renderContactsPage()" ${contactPage>=totalPages-1?'disabled':''}>»</button>
+      </div>
+    </div>`;
 
   document.getElementById('content').innerHTML = `
     <div class="table-wrap">
       <div class="table-header">
-        <input id="search-input" placeholder="Søk navn, firma, e-post..." value="${contactSearch}" oninput="contactSearch=this.value; renderContacts()">
+        <input id="search-input" placeholder="Søk navn, firma, e-post..." value="${contactSearch}" oninput="contactSearch=this.value; renderContacts(true)">
         <div style="display:flex;gap:8px">
-          <select onchange="contactCategoryFilter=this.value; renderContacts()">
+          <select onchange="contactCategoryFilter=this.value; renderContacts(true)">
             <option value="">Alle kategorier</option>
             ${Object.entries(CATEGORIES).map(([v,l])=>`<option value="${v}" ${contactCategoryFilter===v?'selected':''}>${l}</option>`).join('')}
           </select>
-          <select onchange="contactFilter=this.value; renderContacts()">
+          <select onchange="contactFilter=this.value; renderContacts(true)">
             <option value="">Alle statuser</option>
             ${['ny','kontaktet','møte','tilbud','kunde','tapt'].map(s=>`<option value="${s}" ${contactFilter===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
           </select>
         </div>
       </div>
-      ${contacts.length === 0 ? `<div class="empty"><div class="emoji">📭</div><p>Ingen kontakter funnet</p></div>` : `
+      ${total === 0 ? `<div class="empty"><div class="emoji">📭</div><p>Ingen kontakter funnet</p></div>` : `
       <table>
         <thead><tr>
           <th>Navn</th><th>Firma</th><th>Kategori</th><th>E-post</th><th>Telefon</th><th>Status</th><th>Opprettet</th>
         </tr></thead>
         <tbody>
-          ${contacts.map(c => `
+          ${page.map(c => `
             <tr onclick="openPanel('${c.id}')">
               <td><strong>${c.name}</strong></td>
               <td>${c.company || '—'}</td>
@@ -644,7 +672,8 @@ async function renderContacts() {
               <td style="color:var(--muted)">${fmtDate(c.created_at)}</td>
             </tr>`).join('')}
         </tbody>
-      </table>`}
+      </table>
+      ${pagination}`}
     </div>`;
 }
 
