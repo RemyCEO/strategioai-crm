@@ -1040,35 +1040,52 @@ async def gmail_send(data: GmailSend):
         raise HTTPException(400, "Gmail ikke koblet til")
     service = build("gmail", "v1", credentials=creds)
 
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "strategio-logo.jpg")
+    logo_data = open(logo_path, "rb").read() if os.path.exists(logo_path) else None
+
+    escaped = data.body.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+    html_body = f"<pre style='font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap'>{escaped}</pre>"
+
+    msg = MIMEMultipart("related")
+    msg["To"] = data.to
+    msg["Subject"] = data.subject
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(data.body, "plain", "utf-8"))
+
+    # Legg til innholdsbilde (f.eks. markeds-banner) om det finnes
     if data.image_filename:
         img_path = os.path.join(os.path.dirname(__file__), "static", os.path.basename(data.image_filename))
         if os.path.exists(img_path):
             with open(img_path, "rb") as f:
                 img_data = f.read()
-            html_body = "<pre style='font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap'>" + data.body.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;") + "</pre>"
-            html_body += '<br><img src="cid:strategio_img" style="max-width:600px;width:100%">'
-            msg = MIMEMultipart("related")
-            msg["To"] = data.to
-            msg["Subject"] = data.subject
-            alt = MIMEMultipart("alternative")
-            alt.attach(MIMEText(data.body, "plain", "utf-8"))
-            alt.attach(MIMEText(html_body, "html", "utf-8"))
-            msg.attach(alt)
-            img_mime = MIMEImage(img_data)
-            img_mime.add_header("Content-ID", "<strategio_img>")
-            img_mime.add_header("Content-Disposition", "inline")
-            msg.attach(img_mime)
+            html_body += '<br><img src="cid:content_img" style="max-width:600px;width:100%;border-radius:8px">'
+            content_img = MIMEImage(img_data)
+            content_img.add_header("Content-ID", "<content_img>")
+            content_img.add_header("Content-Disposition", "inline")
         else:
-            msg = MIMEMultipart("alternative")
-            msg["To"] = data.to
-            msg["Subject"] = data.subject
-            msg.attach(MIMEText(data.body, "plain", "utf-8"))
+            img_data = None
     else:
-        from email.message import EmailMessage
-        msg = EmailMessage()
-        msg["To"] = data.to
-        msg["Subject"] = data.subject
-        msg.set_content(data.body, charset="utf-8")
+        img_data = None
+
+    # Logo alltid nederst
+    if logo_data:
+        html_body += (
+            '<div style="margin-top:32px;padding-top:20px;border-top:1px solid #eee;text-align:center">'
+            '<img src="cid:strategio_logo" style="width:140px;height:auto">'
+            '</div>'
+        )
+
+    alt.attach(MIMEText(html_body, "html", "utf-8"))
+    msg.attach(alt)
+
+    if img_data:
+        msg.attach(content_img)
+
+    if logo_data:
+        logo_mime = MIMEImage(logo_data)
+        logo_mime.add_header("Content-ID", "<strategio_logo>")
+        logo_mime.add_header("Content-Disposition", "inline")
+        msg.attach(logo_mime)
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
