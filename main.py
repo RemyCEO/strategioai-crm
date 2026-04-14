@@ -514,32 +514,43 @@ def _stripe_sub_info(s):
 @app.get("/api/stripe/summary")
 def stripe_summary():
     stripe_ok()
-    subs = stripe.Subscription.list(status="active", limit=100)
-    mrr = 0.0
-    active_sub_count = 0
-    for s in subs.auto_paging_iter():
-        active_sub_count += 1
-        amount, interval, _, _pe = _stripe_sub_info(s)
-        mrr += amount / 12 if interval == "year" else amount
-    charges = stripe.Charge.list(limit=50, expand=["data.billing_details"])
-    total_revenue = 0.0
-    recent_payments = []
-    for ch in charges.auto_paging_iter():
-        if ch.status == "succeeded":
-            total_revenue += ch.amount / 100
-        bd = ch.billing_details
-        email = (bd.email if bd and hasattr(bd, 'email') else None) or ch.receipt_email
-        recent_payments.append({
-            "id": ch.id,
-            "amount": ch.amount / 100,
-            "currency": ch.currency.upper(),
-            "status": ch.status,
-            "email": email,
-            "description": ch.description,
-            "date": datetime.fromtimestamp(ch.created, tz=timezone.utc).isoformat(),
-            "receipt_url": ch.receipt_url,
-            "refunded": ch.refunded,
-        })
+    try:
+        subs = stripe.Subscription.list(status="active", limit=100)
+        mrr = 0.0
+        active_sub_count = 0
+        for s in subs.auto_paging_iter():
+            active_sub_count += 1
+            amount, interval, _, _pe = _stripe_sub_info(s)
+            mrr += amount / 12 if interval == "year" else amount
+    except Exception:
+        mrr = 0.0
+        active_sub_count = 0
+    try:
+        charges = stripe.Charge.list(limit=50, expand=["data.billing_details"])
+        total_revenue = 0.0
+        recent_payments = []
+        for ch in charges.auto_paging_iter():
+            if ch.status == "succeeded":
+                total_revenue += ch.amount / 100
+            try:
+                bd = ch.billing_details
+                email = (bd.email if bd and hasattr(bd, 'email') else None) or ch.receipt_email
+                recent_payments.append({
+                    "id": ch.id,
+                    "amount": ch.amount / 100,
+                    "currency": ch.currency.upper(),
+                    "status": ch.status,
+                    "email": email,
+                    "description": ch.description,
+                    "date": datetime.fromtimestamp(ch.created, tz=timezone.utc).isoformat(),
+                    "receipt_url": ch.receipt_url,
+                    "refunded": ch.refunded,
+                })
+            except Exception:
+                pass
+    except Exception:
+        total_revenue = 0.0
+        recent_payments = []
     return {
         "mrr": round(mrr, 2),
         "arr": round(mrr * 12, 2),
@@ -551,18 +562,24 @@ def stripe_summary():
 @app.get("/api/stripe/customers")
 def stripe_customers(limit: int = 100):
     stripe_ok()
-    subs = stripe.Subscription.list(status="active", limit=100)
     sub_by_cid = {}
-    for s in subs.auto_paging_iter():
-        cid = s.customer if isinstance(s.customer, str) else s.customer.id
-        amount, interval, plan_name, period_end = _stripe_sub_info(s)
-        sub_by_cid[cid] = {
-            "status": s.status,
-            "monthly": round(amount / 12 if interval == "year" else amount, 2),
-            "plan": plan_name,
-            "sub_id": s.id,
-            "period_end": datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat() if period_end else None,
-        }
+    try:
+        subs = stripe.Subscription.list(status="active", limit=100)
+        for s in subs.auto_paging_iter():
+            try:
+                cid = s.customer if isinstance(s.customer, str) else s.customer.id
+                amount, interval, plan_name, period_end = _stripe_sub_info(s)
+                sub_by_cid[cid] = {
+                    "status": s.status,
+                    "monthly": round(amount / 12 if interval == "year" else amount, 2),
+                    "plan": plan_name,
+                    "sub_id": s.id,
+                    "period_end": datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat() if period_end else None,
+                }
+            except Exception:
+                pass
+    except Exception:
+        pass
     customers = stripe.Customer.list(limit=limit)
     with get_conn() as conn:
         cur = conn.cursor()

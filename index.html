@@ -1031,12 +1031,10 @@ let _stripeFilter = 'alle'; // alle | sub | ikke-crm
 async function renderStripe() {
   const content = document.getElementById('content');
   content.innerHTML = `<div style="color:var(--muted);padding:40px;text-align:center">Laster Stripe-data...</div>`;
-  const [summary, customers] = await Promise.all([
-    api('/api/stripe/summary'),
-    api('/api/stripe/customers?limit=100')
-  ]);
 
-  if (customers === null || summary === null) {
+  // Sjekk om Stripe er konfigurert først
+  const status = await api('/api/stripe/status');
+  if (!status || !status.connected) {
     content.innerHTML = `
       <div style="max-width:540px;margin:60px auto;background:var(--surface);border:1.5px solid rgba(99,102,241,.4);border-radius:12px;padding:36px 40px">
         <div style="font-size:32px;margin-bottom:12px">💳</div>
@@ -1047,8 +1045,14 @@ async function renderStripe() {
       </div>`;
     return;
   }
-  _stripeCustomers = customers;
-  _renderStripeView(summary);
+
+  const [summary, customers] = await Promise.all([
+    api('/api/stripe/summary'),
+    api('/api/stripe/customers?limit=100')
+  ]);
+
+  _stripeCustomers = customers || [];
+  _renderStripeView(summary || {mrr:0,arr:0,active_subs:0,total_revenue:0,recent_payments:[]});
 }
 
 function _renderStripeView(summary) {
