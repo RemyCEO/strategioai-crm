@@ -490,20 +490,26 @@ def stripe_ok():
     if not STRIPE_SECRET_KEY:
         raise HTTPException(400, "STRIPE_SECRET_KEY mangler i .env")
 
-def _stripe_sub_price(s):
-    """Hent pris-info fra subscription-objekt (kompatibel med nye Stripe SDK)."""
+def _stripe_sub_info(s):
+    """Hent pris-info og periode fra subscription-objekt (kompatibel med Stripe SDK v5+)."""
     items_data = s.items.data if hasattr(s.items, 'data') else []
     item = items_data[0] if items_data else None
     if item is None:
-        return 0.0, "month", ""
+        return 0.0, "month", "", None
     price = item.price if hasattr(item, 'price') else None
     if price is None:
-        return 0.0, "month", ""
+        return 0.0, "month", "", None
     amount = (price.unit_amount or 0) / 100
     recurring = price.recurring if hasattr(price, 'recurring') else None
     interval = recurring.interval if recurring and hasattr(recurring, 'interval') else "month"
     plan_name = (price.nickname or price.id or "") if hasattr(price, 'nickname') else ""
-    return amount, interval, plan_name
+    # current_period_end er på item i nyere SDK, fallback til billing_cycle_anchor
+    period_end = None
+    if hasattr(item, 'current_period_end') and item.current_period_end:
+        period_end = item.current_period_end
+    elif hasattr(s, 'billing_cycle_anchor') and s.billing_cycle_anchor:
+        period_end = s.billing_cycle_anchor
+    return amount, interval, plan_name, period_end
 
 @app.get("/api/stripe/summary")
 def stripe_summary():
@@ -513,7 +519,7 @@ def stripe_summary():
     active_sub_count = 0
     for s in subs.auto_paging_iter():
         active_sub_count += 1
-        amount, interval, _ = _stripe_sub_price(s)
+        amount, interval, _, _pe = _stripe_sub_info(s)
         mrr += amount / 12 if interval == "year" else amount
     charges = stripe.Charge.list(limit=50, expand=["data.billing_details"])
     total_revenue = 0.0
@@ -549,13 +555,13 @@ def stripe_customers(limit: int = 100):
     sub_by_cid = {}
     for s in subs.auto_paging_iter():
         cid = s.customer if isinstance(s.customer, str) else s.customer.id
-        amount, interval, plan_name = _stripe_sub_price(s)
+        amount, interval, plan_name, period_end = _stripe_sub_info(s)
         sub_by_cid[cid] = {
             "status": s.status,
             "monthly": round(amount / 12 if interval == "year" else amount, 2),
             "plan": plan_name,
             "sub_id": s.id,
-            "period_end": datetime.fromtimestamp(s.current_period_end, tz=timezone.utc).isoformat(),
+            "period_end": datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat() if period_end else None,
         }
     customers = stripe.Customer.list(limit=limit)
     with get_conn() as conn:
@@ -636,16 +642,18 @@ def stripe_subscriptions(email: str):
     subs = stripe.Subscription.list(customer=customer.id, limit=20)
     result = []
     for s in subs.auto_paging_iter():
-        item = s["items"]["data"][0] if s["items"]["data"] else {}
-        price = item.get("price", {})
+        amount, interval, plan_name, period_end = _stripe_sub_info(s)
+        items_data = s.items.data if hasattr(s.items, 'data') else []
+        item = items_data[0] if items_data else None
+        price = item.price if item and hasattr(item, 'price') else None
         result.append({
             "id": s.id,
             "status": s.status,
-            "plan": price.get("nickname") or price.get("id", ""),
-            "amount": (price.get("unit_amount") or 0) / 100,
-            "currency": (price.get("currency") or "").upper(),
-            "interval": price.get("recurring", {}).get("interval", ""),
-            "current_period_end": datetime.fromtimestamp(s.current_period_end, tz=timezone.utc).isoformat(),
+            "plan": plan_name,
+            "amount": amount,
+            "currency": (price.currency if price and hasattr(price, 'currency') else "").upper(),
+            "interval": interval,
+            "current_period_end": datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat() if period_end else None,
         })
     return result
 
@@ -686,7 +694,8 @@ def stripe_refund(data: RefundRequest):
     refund = stripe.Refund.create(**params)
     # Log CRM activity if contact found
     charge = stripe.Charge.retrieve(data.charge_id)
-    email = (charge.billing_details or {}).get("email") or charge.receipt_email
+    bd = charge.billing_details
+    email = (bd.email if bd and hasattr(bd, 'email') else None) or charge.receipt_email
     if email:
         with get_conn() as conn:
             cur = conn.cursor()
@@ -708,10 +717,10 @@ class CancelSubRequest(BaseModel):
 def stripe_cancel_sub(data: CancelSubRequest):
     stripe_ok()
     sub = stripe.Subscription.modify(data.subscription_id, cancel_at_period_end=True)
-    cancel_at = datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc).isoformat()
-    # Find customer email and log activity
+    _, _, _, period_end = _stripe_sub_info(sub)
+    cancel_at = datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat() if period_end else ""
     cust = stripe.Customer.retrieve(sub.customer if isinstance(sub.customer, str) else sub.customer.id)
-    email = cust.get("email")
+    email = cust.email if hasattr(cust, 'email') else None
     if email:
         with get_conn() as conn:
             cur = conn.cursor()
@@ -823,7 +832,7 @@ async def stripe_webhook(request: Request):
         customer_id = event["data"]["object"].get("customer")
         if customer_id:
             cust = stripe.Customer.retrieve(customer_id)
-            email = cust.get("email")
+            email = cust.email if hasattr(cust, 'email') else None
             if email:
                 with get_conn() as conn:
                     cur = conn.cursor()
@@ -843,7 +852,7 @@ async def stripe_webhook(request: Request):
         currency = (obj.get("currency") or "nok").upper()
         if customer_id:
             cust = stripe.Customer.retrieve(customer_id)
-            email = cust.get("email")
+            email = cust.email if hasattr(cust, 'email') else None
             if email:
                 with get_conn() as conn:
                     cur = conn.cursor()
