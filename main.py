@@ -155,6 +155,9 @@ def init_db():
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='category') THEN
                     ALTER TABLE contacts ADD COLUMN category TEXT;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='followup_date') THEN
+                    ALTER TABLE contacts ADD COLUMN followup_date TEXT;
+                END IF;
             END$$;
         """)
 
@@ -183,6 +186,7 @@ class Contact(BaseModel):
     status: str = "ny"
     category: str = None
     notes: str = None
+    followup_date: str = None
 
 class ContactUpdate(BaseModel):
     name: str = None
@@ -193,6 +197,7 @@ class ContactUpdate(BaseModel):
     status: str = None
     category: str = None
     notes: str = None
+    followup_date: str = None
 
 class Deal(BaseModel):
     contact_id: str
@@ -245,34 +250,56 @@ def health():
 
 @app.get("/api/stats")
 def stats():
+    today = datetime.now(timezone.utc).date().isoformat()
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT status, category FROM contacts")
+        cur.execute("SELECT status, category, followup_date FROM contacts")
         contacts = cur.fetchall()
         cur.execute("SELECT status, value, type, recurring_amount FROM deals")
         deals = cur.fetchall()
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
+        new_this_week = cur.fetchone()["n"]
 
     pipeline_value = sum(d["value"] or 0 for d in deals if d["status"] not in ["vunnet", "tapt"])
     won_value = sum(d["value"] or 0 for d in deals if d["status"] == "vunnet")
-    mrr = sum(d["recurring_amount"] or 0 for d in deals if d.get("type") == "subscription" and d["status"] == "vunnet")
+
+    # MRR fra Stripe hvis tilgjengelig, ellers fra deals
+    stripe_mrr = 0.0
+    if STRIPE_SECRET_KEY:
+        try:
+            subs = stripe.Subscription.list(status="active", limit=100)
+            for s in subs.auto_paging_iter():
+                amount, interval, _, _pe = _stripe_sub_info(s)
+                stripe_mrr += amount / 12 if interval == "year" else amount
+        except Exception:
+            pass
+    mrr = stripe_mrr if stripe_mrr > 0 else sum(
+        d["recurring_amount"] or 0 for d in deals if d.get("type") == "subscription" and d["status"] == "vunnet"
+    )
 
     status_count = {}
     category_count = {}
+    overdue_followups = 0
     for c in contacts:
         s = c["status"]
         status_count[s] = status_count.get(s, 0) + 1
         cat = c["category"]
         if cat:
             category_count[cat] = category_count.get(cat, 0) + 1
+        fd = c.get("followup_date")
+        if fd and fd <= today and s not in ("vunnet", "tapt"):
+            overdue_followups += 1
 
     return {
         "total_contacts": len(contacts),
         "pipeline_value": pipeline_value,
         "won_value": won_value,
-        "mrr": mrr,
+        "mrr": round(mrr, 2),
         "by_status": status_count,
         "by_category": category_count,
         "total_deals": len(deals),
+        "new_this_week": new_this_week,
+        "overdue_followups": overdue_followups,
     }
 
 
@@ -344,10 +371,10 @@ def create_contact(c: Contact):
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, created_at, updated_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, followup_date, created_at, updated_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (new_id, d["name"], d["company"], d["email"], d["phone"],
-             d["source"], d["status"], d["category"], d["notes"], now, now)
+             d["source"], d["status"], d["category"], d["notes"], d.get("followup_date"), now, now)
         )
         row = cur.fetchone()
     return dict(row)
@@ -364,7 +391,7 @@ def get_contact(id: str):
 
 @app.patch("/api/contacts/{id}")
 async def update_contact(id: str, c: ContactUpdate):
-    payload = {k: v for k, v in c.model_dump().items() if v is not None}
+    payload = {k: v for k, v in c.model_dump().items() if v is not None or k == "followup_date"}
     if not payload:
         raise HTTPException(400, "No fields to update")
     now = datetime.now(timezone.utc).isoformat()
@@ -1194,6 +1221,67 @@ async def upload_image(file: UploadFile = File(...)):
     with open(path, "wb") as f:
         f.write(data)
     return {"filename": filename}
+
+
+# --- Oppfølgingsdato ---
+
+@app.get("/api/contacts/followups")
+def get_followups():
+    """Returnerer leads med oppfølgingsdato i dag eller tidligere (ikke vunnet/tapt)."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM contacts
+            WHERE followup_date IS NOT NULL
+              AND followup_date <= %s
+              AND status NOT IN ('vunnet','tapt')
+            ORDER BY followup_date ASC
+        """, (today,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+# --- Daglig Telegram-rapport ---
+
+async def send_daily_report():
+    today = datetime.now(timezone.utc).date().isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM contacts")
+        total = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
+        new_week = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE followup_date <= %s AND status NOT IN ('vunnet','tapt')", (today,))
+        overdue = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE status='kunde'")
+        customers = cur.fetchone()["n"]
+
+    mrr = 0.0
+    if STRIPE_SECRET_KEY:
+        try:
+            subs = stripe.Subscription.list(status="active", limit=100)
+            for s in subs.auto_paging_iter():
+                amount, interval, _, _pe = _stripe_sub_info(s)
+                mrr += amount / 12 if interval == "year" else amount
+        except Exception:
+            pass
+
+    msg = (
+        f"📊 <b>Daglig CRM-rapport</b>\n\n"
+        f"👥 Totale leads: <b>{total}</b>\n"
+        f"🆕 Nye siste 7 dager: <b>{new_week}</b>\n"
+        f"🤝 Kunder: <b>{customers}</b>\n"
+        f"⏰ Oppfølginger forfalt: <b>{overdue}</b>\n"
+        f"💰 MRR: <b>{mrr:,.0f} kr</b>\n"
+        f"📅 {today}"
+    )
+    await telegram(msg)
+
+@app.post("/api/daily-report")
+async def trigger_daily_report():
+    """Trigger daglig rapport manuelt (kalles av Railway cron eller n8n)."""
+    await send_daily_report()
+    return {"ok": True}
 
 
 # --- Init ---

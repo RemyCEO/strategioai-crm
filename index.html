@@ -373,6 +373,7 @@ tbody td:first-child { color:var(--text); }
       </select>
     </div>
     <div class="form-group"><label>Notater</label><textarea id="c-notes" placeholder="Møtte på restaurant i Majorstuen..."></textarea></div>
+    <div class="form-group"><label>Oppfølgingsdato</label><input id="c-followup" type="date"></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
       <button class="btn btn-green" onclick="saveContact()">Lagre</button>
@@ -616,6 +617,18 @@ async function renderDashboard() {
         </div>`).join('')}
     </div>`;
 
+  const overdueCard = (s.overdue_followups > 0) ? `
+    <div class="stat-card" style="border-color:rgba(239,68,68,.4);cursor:pointer" onclick="showView('contacts')" title="Vis leads med forfalt oppfølging">
+      <div class="label" style="color:#ef4444">⏰ Forfalt oppfølging</div>
+      <div class="value" style="color:#ef4444">${s.overdue_followups}</div>
+      <div class="sub">Klikk for å se</div>
+    </div>` : `
+    <div class="stat-card">
+      <div class="label">Nye denne uka</div>
+      <div class="value">${s.new_this_week || 0}</div>
+      <div class="sub">Siste 7 dager</div>
+    </div>`;
+
   content.innerHTML = `
     <div class="stats-grid" style="grid-template-columns:repeat(5,1fr)">
       <div class="stat-card">
@@ -641,7 +654,7 @@ async function renderDashboard() {
       <div class="stat-card">
         <div class="label">MRR</div>
         <div class="value green">${fmt(s.mrr || 0)}</div>
-        <div class="sub">Månedlig gjentakende</div>
+        <div class="sub">Fra Stripe</div>
       </div>
     </div>
     <div class="stats-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:24px">
@@ -650,6 +663,7 @@ async function renderDashboard() {
           <div class="label">${st}</div>
           <div class="value" style="font-size:20px">${s.by_status?.[st] || 0}</div>
         </div>`).join('')}
+      ${overdueCard}
     </div>
     ${catRow}
     ${actFeed}`;
@@ -748,11 +762,19 @@ function _renderContactsPage() {
       <table>
         <thead><tr>
           <th style="width:36px;padding-left:14px"><input type="checkbox" id="select-all-cb" onchange="toggleAllContacts(this.checked)" style="accent-color:var(--green);cursor:pointer"></th>
-          <th>Navn</th><th>Firma</th><th>Kategori</th><th>E-post</th><th>Telefon</th><th>Status</th><th>Opprettet</th>
+          <th>Navn</th><th>Firma</th><th>Kategori</th><th>E-post</th><th>Telefon</th><th>Status</th><th>Oppfølging</th>
         </tr></thead>
         <tbody>
-          ${page.map(c => `
-            <tr onclick="openPanel('${c.id}')" style="${_selectedContacts.has(c.id)?'background:rgba(34,197,94,.06)':''}">
+          ${page.map(c => {
+            const today = new Date().toISOString().slice(0,10);
+            const fd = c.followup_date;
+            const isOverdue = fd && fd < today && !['vunnet','tapt'].includes(c.status);
+            const isToday = fd && fd === today && !['vunnet','tapt'].includes(c.status);
+            const fdDisplay = fd
+              ? `<span onclick="event.stopPropagation();quickFollowup('${c.id}','${fd}')" style="cursor:pointer;color:${isOverdue?'#ef4444':isToday?'#f59e0b':'var(--muted)'};font-weight:${isOverdue||isToday?'700':'400'}" title="${isOverdue?'Forfalt!':isToday?'I dag':fd}">${isOverdue?'⚠️ ':''}${fd}</span>`
+              : `<span onclick="event.stopPropagation();quickFollowup('${c.id}','')" style="cursor:pointer;color:var(--muted);font-size:12px" title="Sett oppfølgingsdato">+ dato</span>`;
+            return `
+            <tr onclick="openPanel('${c.id}')" style="${_selectedContacts.has(c.id)?'background:rgba(34,197,94,.06)':isOverdue?'background:rgba(239,68,68,.04)':''}">
               <td style="padding-left:14px" onclick="event.stopPropagation()"><input type="checkbox" class="contact-cb" value="${c.id}" onchange="toggleContactSelect('${c.id}',this.checked)" ${_selectedContacts.has(c.id)?'checked':''} style="accent-color:var(--green);cursor:pointer"></td>
               <td><strong>${c.name}</strong></td>
               <td>${c.company || '—'}</td>
@@ -762,8 +784,8 @@ function _renderContactsPage() {
               <td onclick="event.stopPropagation()"><select class="badge ${c.status}" onchange="quickStatus('${c.id}',this.value)" style="border:none;outline:none;cursor:pointer;font-size:11px;font-weight:600;border-radius:20px;padding:3px 7px;font-family:inherit;background:inherit">
                 ${STATUS_CYCLE.map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${s}</option>`).join('')}
               </select></td>
-              <td style="color:var(--muted)">${fmtDate(c.created_at)}</td>
-            </tr>`).join('')}
+              <td onclick="event.stopPropagation()">${fdDisplay}</td>
+            </tr>`;}).join('')}
         </tbody>
       </table>
       ${pagination}`}
@@ -875,7 +897,11 @@ async function renderPanelTab(c) {
           <div class="info-item"><div class="key">Telefon</div><div class="val">${c.phone ? `<a href="tel:${c.phone}" style="color:var(--green)">${c.phone}</a>` : '—'}</div></div>
           <div class="info-item"><div class="key">Kilde</div><div class="val">${c.source || '—'}</div></div>
           <div class="info-item"><div class="key">Status</div><div class="val"><span class="badge ${c.status}">${c.status}</span></div></div>
-          <div class="info-item" style="grid-column:1/-1"><div class="key">Kategori</div><div class="val">${c.category ? `<span class="cat-badge">${CATEGORIES[c.category]||c.category}</span>` : '—'}</div></div>
+          <div class="info-item"><div class="key">Kategori</div><div class="val">${c.category ? `<span class="cat-badge">${CATEGORIES[c.category]||c.category}</span>` : '—'}</div></div>
+          <div class="info-item"><div class="key">⏰ Oppfølging</div><div class="val" style="display:flex;align-items:center;gap:8px">
+            <span style="color:${c.followup_date && c.followup_date < new Date().toISOString().slice(0,10) ? '#ef4444' : 'var(--text)'}">${c.followup_date || '—'}</span>
+            <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="quickFollowup('${id}','${c.followup_date||''}')">endre</button>
+          </div></div>
         </div>
         ${c.notes ? `<div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-top:10px;font-size:12px;color:var(--muted)">${c.notes}</div>` : ''}
       </div>
@@ -1341,6 +1367,7 @@ function openNewContact() {
   document.getElementById('c-source').value = 'manuell';
   document.getElementById('c-status').value = 'ny';
   document.getElementById('c-category').value = '';
+  document.getElementById('c-followup').value = '';
   showModal('modal-contact');
 }
 
@@ -1357,6 +1384,7 @@ async function openEditContact(id) {
   document.getElementById('c-source').value = c.source || 'manuell';
   document.getElementById('c-status').value = c.status || 'ny';
   document.getElementById('c-category').value = c.category || '';
+  document.getElementById('c-followup').value = c.followup_date || '';
   showModal('modal-contact');
 }
 
@@ -1405,6 +1433,7 @@ async function saveContact() {
     status: document.getElementById('c-status').value,
     category: document.getElementById('c-category').value || null,
     notes: document.getElementById('c-notes').value.trim() || null,
+    followup_date: document.getElementById('c-followup').value || null,
   };
   if (!payload.name) { toast('Navn er påkrevd', 'warn'); return; }
   if (editContactId) {
@@ -1978,6 +2007,18 @@ async function quickStatus(id, newStatus) {
     if (idx >= 0) _allContacts[idx].status = newStatus;
     _renderContactsPage();
     toast(newStatus === 'kunde' ? '🎉 Ny kunde!' : `Status: ${newStatus}`);
+  }
+}
+
+async function quickFollowup(id, current) {
+  const date = prompt('Oppfølgingsdato (ÅÅÅÅ-MM-DD), blank for å fjerne:', current || new Date().toISOString().slice(0,10));
+  if (date === null) return;
+  const res = await api(`/api/contacts/${id}`, 'PATCH', { followup_date: date.trim() || null });
+  if (res) {
+    const idx = _allContacts.findIndex(c => c.id === id);
+    if (idx >= 0) _allContacts[idx].followup_date = date.trim() || null;
+    _renderContactsPage();
+    toast(date.trim() ? `Oppfølging satt: ${date.trim()}` : 'Oppfølging fjernet');
   }
 }
 
