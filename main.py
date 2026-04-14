@@ -247,7 +247,7 @@ def health():
 def stats():
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT status FROM contacts")
+        cur.execute("SELECT status, category FROM contacts")
         contacts = cur.fetchall()
         cur.execute("SELECT status, value, type, recurring_amount FROM deals")
         deals = cur.fetchall()
@@ -257,9 +257,13 @@ def stats():
     mrr = sum(d["recurring_amount"] or 0 for d in deals if d.get("type") == "subscription" and d["status"] == "vunnet")
 
     status_count = {}
+    category_count = {}
     for c in contacts:
         s = c["status"]
         status_count[s] = status_count.get(s, 0) + 1
+        cat = c["category"]
+        if cat:
+            category_count[cat] = category_count.get(cat, 0) + 1
 
     return {
         "total_contacts": len(contacts),
@@ -267,8 +271,43 @@ def stats():
         "won_value": won_value,
         "mrr": mrr,
         "by_status": status_count,
+        "by_category": category_count,
         "total_deals": len(deals),
     }
+
+
+@app.get("/api/activities/recent")
+def recent_activities(limit: int = 10):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.*, c.name as contact_name
+            FROM activities a
+            LEFT JOIN contacts c ON a.contact_id = c.id
+            ORDER BY a.created_at DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+class BulkCategoryUpdate(BaseModel):
+    ids: list
+    category: str = None
+
+@app.post("/api/contacts/bulk-category")
+def bulk_category(data: BulkCategoryUpdate):
+    if not data.ids:
+        raise HTTPException(400, "Ingen IDer")
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        placeholders = ','.join(['%s'] * len(data.ids))
+        cur.execute(
+            f"UPDATE contacts SET category=%s, updated_at=%s WHERE id IN ({placeholders})",
+            [data.category, now] + list(data.ids)
+        )
+    return {"updated": len(data.ids)}
 
 
 # --- Contacts ---

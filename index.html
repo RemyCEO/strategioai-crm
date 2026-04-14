@@ -513,6 +513,28 @@ tbody td:first-child { color:var(--text); }
 
 </div>
 
+<!-- BULK ACTION BAR -->
+<div id="bulk-bar" style="display:none;position:fixed;bottom:0;left:240px;right:0;background:linear-gradient(135deg,#0d1825,#091520);border-top:2px solid var(--green);padding:12px 28px;z-index:40;align-items:center;gap:12px;box-shadow:0 -4px 24px rgba(0,0,0,.5)">
+  <span id="bulk-count" style="font-weight:700;color:var(--green);font-size:13px"></span>
+  <select id="bulk-cat-select" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 10px;font-size:13px;outline:none;font-family:inherit;flex:1;max-width:260px">
+    <option value="">— Fjern kategori —</option>
+    <option value="gym">🏋️ Gym / Trening</option>
+    <option value="restaurant">🍽️ Restaurant</option>
+    <option value="pizza">🍕 Pizza</option>
+    <option value="kafé">☕ Kafé / Bar</option>
+    <option value="transport">🚗 Transport</option>
+    <option value="frisør">💇 Frisør / Salong</option>
+    <option value="helse">🏥 Helse / Klinikk</option>
+    <option value="eiendom">🏠 Eiendom</option>
+    <option value="butikk">🛒 Butikk / Handel</option>
+    <option value="håndverk">🔨 Håndverk / Bygg</option>
+    <option value="konsulent">💼 Konsulent</option>
+    <option value="annet">📌 Annet</option>
+  </select>
+  <button class="btn btn-green btn-sm" onclick="applyBulkCategory()">Sett kategori</button>
+  <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()">✕ Avbryt</button>
+</div>
+
 <script>
 const API = '';
 let currentView = 'dashboard';
@@ -538,6 +560,7 @@ async function render() {
   if (currentView === 'dashboard') { actions.innerHTML=''; await renderDashboard(); }
   else if (currentView === 'contacts') {
     actions.innerHTML=`
+      <button class="btn btn-ghost btn-sm" onclick="exportCSV()" style="color:#4ade80;border-color:rgba(34,197,94,.3)">↓ CSV</button>
       <button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer fra Stripe</button>
       <button class="btn btn-green" onclick="openNewContact()">+ Ny kontakt</button>`;
     await renderContacts();
@@ -552,8 +575,40 @@ async function render() {
 
 // --- DASHBOARD ---
 async function renderDashboard() {
-  const s = await api('/api/stats');
+  const [s, activities] = await Promise.all([
+    api('/api/stats'),
+    api('/api/activities/recent?limit=10')
+  ]);
   const content = document.getElementById('content');
+
+  const catEntries = Object.entries(s.by_category || {}).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+  const catRow = catEntries.length === 0 ? '' : `
+    <div style="margin-bottom:24px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:10px">Kontakter per kategori</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${catEntries.map(([cat,count]) => `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;transition:.15s" onclick="contactCategoryFilter='${cat}';showView('contacts')" onmouseover="this.style.borderColor='rgba(34,197,94,.3)'" onmouseout="this.style.borderColor='var(--border)'">
+            <span class="cat-badge">${CATEGORIES[cat]||cat}</span>
+            <span style="font-weight:700;font-size:15px;color:var(--text)">${count}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  const activityIcons = { notat:'📝', call:'📞', email:'📧', møte:'🤝', telefon:'📞', betaling:'💳', abonnement:'🔄' };
+  const actFeed = !activities || activities.length === 0 ? '' : `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:14px">Siste aktiviteter</div>
+      ${activities.map(a => `
+        <div class="activity-item">
+          <div class="activity-dot"></div>
+          <div>
+            <div style="font-size:13px;font-weight:500">${a.contact_name || '—'} <span class="activity-type">${activityIcons[a.type]||'•'} ${a.type}</span></div>
+            ${a.note ? `<div style="font-size:12px;color:var(--text2);margin-top:2px">${a.note.substring(0,100)}</div>` : ''}
+            <div class="meta">${fmtDate(a.created_at)}</div>
+          </div>
+        </div>`).join('')}
+    </div>`;
+
   content.innerHTML = `
     <div class="stats-grid" style="grid-template-columns:repeat(5,1fr)">
       <div class="stat-card">
@@ -582,13 +637,15 @@ async function renderDashboard() {
         <div class="sub">Månedlig gjentakende</div>
       </div>
     </div>
-    <div class="stats-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:0">
+    <div class="stats-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:24px">
       ${['ny','kontaktet','møte','tilbud','vunnet','tapt'].map(st => `
-        <div class="stat-card" style="padding:14px 16px">
+        <div class="stat-card" style="padding:14px 16px;cursor:pointer" onclick="contactFilter='${st}';showView('contacts')" onmouseover="this.style.borderColor='rgba(34,197,94,.25)'" onmouseout="this.style.borderColor='var(--border)'">
           <div class="label">${st}</div>
           <div class="value" style="font-size:20px">${s.by_status?.[st] || 0}</div>
         </div>`).join('')}
-    </div>`;
+    </div>
+    ${catRow}
+    ${actFeed}`;
 }
 
 // --- CONTACTS ---
@@ -606,9 +663,10 @@ const CATEGORIES = {
 };
 
 let _allContacts = [];
+let _selectedContacts = new Set();
 
 async function renderContacts(resetPage = false) {
-  if (resetPage) contactPage = 0;
+  if (resetPage) { contactPage = 0; _selectedContacts.clear(); _renderBulkBar(); }
   let url = '/api/contacts';
   const params = [];
   if (contactFilter) params.push(`status=${contactFilter}`);
@@ -658,11 +716,13 @@ function _renderContactsPage() {
       ${total === 0 ? `<div class="empty"><div class="emoji">📭</div><p>Ingen kontakter funnet</p></div>` : `
       <table>
         <thead><tr>
+          <th style="width:36px;padding-left:14px"><input type="checkbox" id="select-all-cb" onchange="toggleAllContacts(this.checked)" style="accent-color:var(--green);cursor:pointer"></th>
           <th>Navn</th><th>Firma</th><th>Kategori</th><th>E-post</th><th>Telefon</th><th>Status</th><th>Opprettet</th>
         </tr></thead>
         <tbody>
           ${page.map(c => `
-            <tr onclick="openPanel('${c.id}')">
+            <tr onclick="openPanel('${c.id}')" style="${_selectedContacts.has(c.id)?'background:rgba(34,197,94,.06)':''}">
+              <td style="padding-left:14px" onclick="event.stopPropagation()"><input type="checkbox" class="contact-cb" value="${c.id}" onchange="toggleContactSelect('${c.id}',this.checked)" ${_selectedContacts.has(c.id)?'checked':''} style="accent-color:var(--green);cursor:pointer"></td>
               <td><strong>${c.name}</strong></td>
               <td>${c.company || '—'}</td>
               <td>${c.category ? `<span class="cat-badge">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
@@ -675,6 +735,7 @@ function _renderContactsPage() {
       </table>
       ${pagination}`}
     </div>`;
+  _renderBulkBar();
 }
 
 // --- DEALS ---
@@ -1476,6 +1537,68 @@ function clearNmImage() {
   _nmExistingImage = '';
 }
 
+
+// --- BULK ACTIONS ---
+function _renderBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  if (!bar) return;
+  if (_selectedContacts.size === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  document.getElementById('bulk-count').textContent = _selectedContacts.size + ' kontakter valgt';
+}
+
+function toggleContactSelect(id, checked) {
+  if (checked) _selectedContacts.add(id);
+  else _selectedContacts.delete(id);
+  const allCbs = document.querySelectorAll('.contact-cb');
+  const sac = document.getElementById('select-all-cb');
+  if (sac) {
+    sac.checked = allCbs.length > 0 && [...allCbs].every(cb => cb.checked);
+    sac.indeterminate = _selectedContacts.size > 0 && !sac.checked;
+  }
+  _renderBulkBar();
+}
+
+function toggleAllContacts(checked) {
+  document.querySelectorAll('.contact-cb').forEach(cb => {
+    cb.checked = checked;
+    if (checked) _selectedContacts.add(cb.value);
+    else _selectedContacts.delete(cb.value);
+  });
+  _renderBulkBar();
+}
+
+async function applyBulkCategory() {
+  if (_selectedContacts.size === 0) return;
+  const cat = document.getElementById('bulk-cat-select').value;
+  const res = await api('/api/contacts/bulk-category', 'POST', { ids: [..._selectedContacts], category: cat || null });
+  if (res) { clearBulkSelection(); renderContacts(false); }
+}
+
+function clearBulkSelection() {
+  _selectedContacts.clear();
+  document.querySelectorAll('.contact-cb').forEach(cb => cb.checked = false);
+  const sac = document.getElementById('select-all-cb');
+  if (sac) { sac.checked = false; sac.indeterminate = false; }
+  _renderBulkBar();
+}
+
+// --- CSV EXPORT ---
+function exportCSV() {
+  if (_allContacts.length === 0) { alert('Ingen kontakter å eksportere. Last kontakter-siden først.'); return; }
+  const headers = ['Navn','Firma','Kategori','E-post','Telefon','Status','Kilde','Opprettet'];
+  const rows = _allContacts.map(c => [
+    c.name||'', c.company||'', c.category||'', c.email||'',
+    c.phone||'', c.status||'', c.source||'',
+    c.created_at ? new Date(c.created_at).toLocaleDateString('nb-NO') : ''
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `kontakter_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
 
 // --- UTILS ---
 async function api(url, method='GET', body=null) {
