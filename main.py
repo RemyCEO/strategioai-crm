@@ -490,6 +490,21 @@ def stripe_ok():
     if not STRIPE_SECRET_KEY:
         raise HTTPException(400, "STRIPE_SECRET_KEY mangler i .env")
 
+def _stripe_sub_price(s):
+    """Hent pris-info fra subscription-objekt (kompatibel med nye Stripe SDK)."""
+    items_data = s.items.data if hasattr(s.items, 'data') else []
+    item = items_data[0] if items_data else None
+    if item is None:
+        return 0.0, "month", ""
+    price = item.price if hasattr(item, 'price') else None
+    if price is None:
+        return 0.0, "month", ""
+    amount = (price.unit_amount or 0) / 100
+    recurring = price.recurring if hasattr(price, 'recurring') else None
+    interval = recurring.interval if recurring and hasattr(recurring, 'interval') else "month"
+    plan_name = (price.nickname or price.id or "") if hasattr(price, 'nickname') else ""
+    return amount, interval, plan_name
+
 @app.get("/api/stripe/summary")
 def stripe_summary():
     stripe_ok()
@@ -498,10 +513,7 @@ def stripe_summary():
     active_sub_count = 0
     for s in subs.auto_paging_iter():
         active_sub_count += 1
-        item = s["items"]["data"][0] if s["items"]["data"] else {}
-        price = item.get("price", {})
-        amount = (price.get("unit_amount") or 0) / 100
-        interval = (price.get("recurring") or {}).get("interval", "month")
+        amount, interval, _ = _stripe_sub_price(s)
         mrr += amount / 12 if interval == "year" else amount
     charges = stripe.Charge.list(limit=50, expand=["data.billing_details"])
     total_revenue = 0.0
@@ -509,12 +521,14 @@ def stripe_summary():
     for ch in charges.auto_paging_iter():
         if ch.status == "succeeded":
             total_revenue += ch.amount / 100
+        bd = ch.billing_details
+        email = (bd.email if bd and hasattr(bd, 'email') else None) or ch.receipt_email
         recent_payments.append({
             "id": ch.id,
             "amount": ch.amount / 100,
             "currency": ch.currency.upper(),
             "status": ch.status,
-            "email": (ch.billing_details or {}).get("email") or ch.receipt_email,
+            "email": email,
             "description": ch.description,
             "date": datetime.fromtimestamp(ch.created, tz=timezone.utc).isoformat(),
             "receipt_url": ch.receipt_url,
@@ -531,19 +545,15 @@ def stripe_summary():
 @app.get("/api/stripe/customers")
 def stripe_customers(limit: int = 100):
     stripe_ok()
-    # Fetch all active subs indexed by customer id
     subs = stripe.Subscription.list(status="active", limit=100)
     sub_by_cid = {}
     for s in subs.auto_paging_iter():
         cid = s.customer if isinstance(s.customer, str) else s.customer.id
-        item = s["items"]["data"][0] if s["items"]["data"] else {}
-        price = item.get("price", {})
-        amount = (price.get("unit_amount") or 0) / 100
-        interval = (price.get("recurring") or {}).get("interval", "month")
+        amount, interval, plan_name = _stripe_sub_price(s)
         sub_by_cid[cid] = {
             "status": s.status,
             "monthly": round(amount / 12 if interval == "year" else amount, 2),
-            "plan": price.get("nickname") or price.get("id", ""),
+            "plan": plan_name,
             "sub_id": s.id,
             "period_end": datetime.fromtimestamp(s.current_period_end, tz=timezone.utc).isoformat(),
         }
