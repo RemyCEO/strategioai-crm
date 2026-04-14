@@ -1017,7 +1017,7 @@ function _malCard(t, onDelete, onCopy) {
   const imgHtml = t.image_filename
     ? `<img src="/static/${t.image_filename}" style="width:60px;height:40px;object-fit:cover;border-radius:4px;border:1px solid var(--border);">`
     : `<div style="width:60px;height:40px;background:var(--surface2);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px">📝</div>`;
-  const tj = JSON.stringify(t).replace(/</g,'\\u003c');
+  const tj = JSON.stringify(t).replace(/</g,'\\u003c').replace(/"/g,'&quot;');
   return `
     <tr style="cursor:pointer" ondblclick="visMal(${tj})">
       <td style="width:70px">${imgHtml}</td>
@@ -1075,7 +1075,7 @@ async function renderOrdrebekreftelser() {
       <table>
         <thead><tr><th>Navn</th><th>Forhåndsvisning</th><th style="width:220px">Handlinger</th></tr></thead>
         <tbody>${templates.map(t => {
-          const tj = JSON.stringify(t).replace(/</g,'\\u003c');
+          const tj = JSON.stringify(t).replace(/</g,'\\u003c').replace(/"/g,'&quot;');
           return `
           <tr style="cursor:pointer" ondblclick="visMal(${tj})">
             <td>
@@ -1202,7 +1202,7 @@ async function toggleTemplatePicker() {
     return;
   }
   list.innerHTML = templates.map(t => `
-    <div onclick="loadTemplateIntoCompose(${JSON.stringify(t).replace(/</g,'\\u003c')})"
+    <div onclick="loadTemplateIntoCompose(${JSON.stringify(t).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})"
       style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px"
       onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <div style="display:flex;align-items:center;gap:8px">
