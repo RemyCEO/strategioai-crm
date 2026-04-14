@@ -152,6 +152,9 @@ def init_db():
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='deals' AND column_name='recurring_amount') THEN
                     ALTER TABLE deals ADD COLUMN recurring_amount REAL DEFAULT 0;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='category') THEN
+                    ALTER TABLE contacts ADD COLUMN category TEXT;
+                END IF;
             END$$;
         """)
 
@@ -178,6 +181,7 @@ class Contact(BaseModel):
     phone: str = None
     source: str = "manuell"
     status: str = "ny"
+    category: str = None
     notes: str = None
 
 class ContactUpdate(BaseModel):
@@ -187,6 +191,7 @@ class ContactUpdate(BaseModel):
     phone: str = None
     source: str = None
     status: str = None
+    category: str = None
     notes: str = None
 
 class Deal(BaseModel):
@@ -269,13 +274,19 @@ def stats():
 # --- Contacts ---
 
 @app.get("/api/contacts")
-def get_contacts(search: str = None, status: str = None):
+def get_contacts(search: str = None, status: str = None, category: str = None):
     with get_conn() as conn:
         cur = conn.cursor()
+        wheres, vals = [], []
         if status:
-            cur.execute("SELECT * FROM contacts WHERE status=%s ORDER BY created_at DESC", (status,))
-        else:
-            cur.execute("SELECT * FROM contacts ORDER BY created_at DESC")
+            wheres.append("status=%s"); vals.append(status)
+        if category:
+            wheres.append("category=%s"); vals.append(category)
+        sql = "SELECT * FROM contacts"
+        if wheres:
+            sql += " WHERE " + " AND ".join(wheres)
+        sql += " ORDER BY created_at DESC"
+        cur.execute(sql, vals)
         data = cur.fetchall()
     result = [dict(r) for r in data]
     if search:
@@ -294,10 +305,10 @@ def create_contact(c: Contact):
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO contacts (id, name, company, email, phone, source, status, notes, created_at, updated_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, created_at, updated_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (new_id, d["name"], d["company"], d["email"], d["phone"],
-             d["source"], d["status"], d["notes"], now, now)
+             d["source"], d["status"], d["category"], d["notes"], now, now)
         )
         row = cur.fetchone()
     return dict(row)

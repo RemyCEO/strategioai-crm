@@ -259,6 +259,9 @@ tbody td:first-child { color:var(--text); }
 ::-webkit-scrollbar-thumb:hover { background:var(--muted); }
 
 .hidden { display:none !important; }
+
+/* Kategori-badges */
+.cat-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; background:rgba(99,102,241,.12); color:#a5b4fc; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -344,6 +347,23 @@ tbody td:first-child { color:var(--text); }
           <option value="tapt">Tapt</option>
         </select>
       </div>
+    </div>
+    <div class="form-group"><label>Kategori</label>
+      <select id="c-category">
+        <option value="">— Ingen kategori —</option>
+        <option value="gym">🏋️ Gym / Trening</option>
+        <option value="restaurant">🍽️ Restaurant</option>
+        <option value="pizza">🍕 Pizza</option>
+        <option value="kafé">☕ Kafé / Bar</option>
+        <option value="transport">🚗 Transport</option>
+        <option value="frisør">💇 Frisør / Salong</option>
+        <option value="helse">🏥 Helse / Klinikk</option>
+        <option value="eiendom">🏠 Eiendom</option>
+        <option value="butikk">🛒 Butikk / Handel</option>
+        <option value="håndverk">🔨 Håndverk / Bygg</option>
+        <option value="konsulent">💼 Konsulent</option>
+        <option value="annet">📌 Annet</option>
+      </select>
     </div>
     <div class="form-group"><label>Notater</label><textarea id="c-notes" placeholder="Møtte på restaurant i Majorstuen..."></textarea></div>
     <div class="modal-footer">
@@ -574,11 +594,20 @@ async function renderDashboard() {
 // --- CONTACTS ---
 let contactSearch = '';
 let contactFilter = '';
+let contactCategoryFilter = '';
+
+const CATEGORIES = {
+  gym:'🏋️ Gym', restaurant:'🍽️ Restaurant', pizza:'🍕 Pizza', 'kafé':'☕ Kafé/Bar',
+  transport:'🚗 Transport', 'frisør':'💇 Frisør', helse:'🏥 Helse',
+  eiendom:'🏠 Eiendom', butikk:'🛒 Butikk', 'håndverk':'🔨 Håndverk',
+  konsulent:'💼 Konsulent', annet:'📌 Annet'
+};
 
 async function renderContacts() {
   let url = '/api/contacts';
   const params = [];
   if (contactFilter) params.push(`status=${contactFilter}`);
+  if (contactCategoryFilter) params.push(`category=${encodeURIComponent(contactCategoryFilter)}`);
   if (contactSearch) params.push(`search=${encodeURIComponent(contactSearch)}`);
   if (params.length) url += '?' + params.join('&');
   const contacts = await api(url);
@@ -587,24 +616,30 @@ async function renderContacts() {
     <div class="table-wrap">
       <div class="table-header">
         <input id="search-input" placeholder="Søk navn, firma, e-post..." value="${contactSearch}" oninput="contactSearch=this.value; renderContacts()">
-        <select onchange="contactFilter=this.value; renderContacts()">
-          <option value="">Alle statuser</option>
-          ${['ny','kontaktet','møte','tilbud','kunde','tapt'].map(s=>`<option value="${s}" ${contactFilter===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
-        </select>
+        <div style="display:flex;gap:8px">
+          <select onchange="contactCategoryFilter=this.value; renderContacts()">
+            <option value="">Alle kategorier</option>
+            ${Object.entries(CATEGORIES).map(([v,l])=>`<option value="${v}" ${contactCategoryFilter===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <select onchange="contactFilter=this.value; renderContacts()">
+            <option value="">Alle statuser</option>
+            ${['ny','kontaktet','møte','tilbud','kunde','tapt'].map(s=>`<option value="${s}" ${contactFilter===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+          </select>
+        </div>
       </div>
       ${contacts.length === 0 ? `<div class="empty"><div class="emoji">📭</div><p>Ingen kontakter funnet</p></div>` : `
       <table>
         <thead><tr>
-          <th>Navn</th><th>Firma</th><th>E-post</th><th>Telefon</th><th>Kilde</th><th>Status</th><th>Opprettet</th>
+          <th>Navn</th><th>Firma</th><th>Kategori</th><th>E-post</th><th>Telefon</th><th>Status</th><th>Opprettet</th>
         </tr></thead>
         <tbody>
           ${contacts.map(c => `
             <tr onclick="openPanel('${c.id}')">
               <td><strong>${c.name}</strong></td>
               <td>${c.company || '—'}</td>
+              <td>${c.category ? `<span class="cat-badge">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
               <td>${c.email || '—'}</td>
               <td>${c.phone || '—'}</td>
-              <td>${c.source || '—'}</td>
               <td><span class="badge ${c.status}">${c.status}</span></td>
               <td style="color:var(--muted)">${fmtDate(c.created_at)}</td>
             </tr>`).join('')}
@@ -717,6 +752,7 @@ async function renderPanelTab(c) {
           <div class="info-item"><div class="key">Telefon</div><div class="val">${c.phone || '—'}</div></div>
           <div class="info-item"><div class="key">Kilde</div><div class="val">${c.source || '—'}</div></div>
           <div class="info-item"><div class="key">Status</div><div class="val"><span class="badge ${c.status}">${c.status}</span></div></div>
+          <div class="info-item" style="grid-column:1/-1"><div class="key">Kategori</div><div class="val">${c.category ? `<span class="cat-badge">${CATEGORIES[c.category]||c.category}</span>` : '—'}</div></div>
         </div>
         ${c.notes ? `<div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-top:10px;font-size:12px;color:var(--muted)">${c.notes}</div>` : ''}
       </div>
@@ -899,6 +935,7 @@ function openNewContact() {
   ['name','company','email','phone','notes'].forEach(f => document.getElementById('c-'+f).value = '');
   document.getElementById('c-source').value = 'manuell';
   document.getElementById('c-status').value = 'ny';
+  document.getElementById('c-category').value = '';
   showModal('modal-contact');
 }
 
@@ -915,6 +952,7 @@ async function openEditContact(id) {
   document.getElementById('c-notes').value = c.notes || '';
   document.getElementById('c-source').value = c.source || 'manuell';
   document.getElementById('c-status').value = c.status || 'ny';
+  document.getElementById('c-category').value = c.category || '';
   showModal('modal-contact');
 }
 
@@ -961,6 +999,7 @@ async function saveContact() {
     phone: document.getElementById('c-phone').value.trim() || null,
     source: document.getElementById('c-source').value,
     status: document.getElementById('c-status').value,
+    category: document.getElementById('c-category').value || null,
     notes: document.getElementById('c-notes').value.trim() || null,
   };
   if (!payload.name) return alert('Navn er påkrevd');
