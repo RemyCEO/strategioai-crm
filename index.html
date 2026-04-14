@@ -289,6 +289,13 @@ tbody td:first-child { color:var(--text); }
     <div class="nav-item" onclick="showView('maler')"><span class="icon">📝</span> E-postmaler</div>
     <div class="nav-item" onclick="showView('ordrebekreftelser')"><span class="icon">📋</span> Ordrebekreftelser</div>
   </nav>
+  <div style="padding:12px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--muted);line-height:1.9">
+    <div style="font-weight:700;letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">Snarveier</div>
+    <div><kbd style="background:var(--surface2);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;font-size:10px">1–8</kbd> Naviger</div>
+    <div><kbd style="background:var(--surface2);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;font-size:10px">/</kbd> Søk leads</div>
+    <div><kbd style="background:var(--surface2);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;font-size:10px">N</kbd> Ny lead</div>
+    <div><kbd style="background:var(--surface2);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;font-size:10px">Esc</kbd> Lukk</div>
+  </div>
 </div>
 
 <!-- MAIN -->
@@ -728,7 +735,7 @@ function _renderContactsPage() {
     ${activeFilters}
     <div class="table-wrap" style="margin-top:${catPills||activeFilters?'10px':'0'}">
       <div class="table-header">
-        <input id="search-input" placeholder="Søk navn, firma, e-post..." value="${contactSearch}" oninput="contactSearch=this.value; renderContacts(true)">
+        <input id="search-input" placeholder="Søk navn, firma, e-post... (trykk /)" value="${contactSearch}" oninput="debouncedSearch(this.value)">
         <div style="display:flex;gap:8px">
           <select onchange="contactFilter=this.value; renderContacts(true)">
             <option value="">Alle statuser</option>
@@ -750,9 +757,11 @@ function _renderContactsPage() {
               <td><strong>${c.name}</strong></td>
               <td>${c.company || '—'}</td>
               <td>${c.category ? `<span class="cat-badge" style="cursor:pointer" onclick="event.stopPropagation();contactCategoryFilter='${c.category}';renderContacts(true)">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
-              <td>${c.email || '—'}</td>
-              <td>${c.phone || '—'}</td>
-              <td><span class="badge ${c.status}">${c.status}</span></td>
+              <td onclick="event.stopPropagation()">${c.email ? `<a href="mailto:${c.email}" style="color:var(--text2);text-decoration:none" onmouseover="this.style.color='var(--green)'" onmouseout="this.style.color='var(--text2)'">${c.email}</a>` : '—'}</td>
+              <td onclick="event.stopPropagation()">${c.phone ? `<a href="tel:${c.phone}" style="color:var(--text2);text-decoration:none" onmouseover="this.style.color='var(--green)'" onmouseout="this.style.color='var(--text2)'">${c.phone}</a>` : '—'}</td>
+              <td onclick="event.stopPropagation()"><select class="badge ${c.status}" onchange="quickStatus('${c.id}',this.value)" style="border:none;outline:none;cursor:pointer;font-size:11px;font-weight:600;border-radius:20px;padding:3px 7px;font-family:inherit;background:inherit">
+                ${STATUS_CYCLE.map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${s}</option>`).join('')}
+              </select></td>
               <td style="color:var(--muted)">${fmtDate(c.created_at)}</td>
             </tr>`).join('')}
         </tbody>
@@ -840,8 +849,8 @@ async function renderPipeline() {
 async function openPanel(id, tab) {
   activePanelId = id;
   panelTab = tab || 'info';
-  const all = await api('/api/contacts');
-  const c = all.find(x => x.id === id);
+  // Bruk cache først, unngå å hente alle 2676 leads
+  let c = _allContacts.find(x => x.id === id) || await api(`/api/contacts/${id}`);
   if (!c) return;
 
   document.getElementById('panel-name').textContent = c.name;
@@ -862,8 +871,8 @@ async function renderPanelTab(c) {
     tabContent = `
       <div class="panel-section">
         <div class="info-grid">
-          <div class="info-item"><div class="key">E-post</div><div class="val">${c.email || '—'}</div></div>
-          <div class="info-item"><div class="key">Telefon</div><div class="val">${c.phone || '—'}</div></div>
+          <div class="info-item"><div class="key">E-post</div><div class="val">${c.email ? `<a href="mailto:${c.email}" style="color:var(--green)">${c.email}</a>` : '—'}</div></div>
+          <div class="info-item"><div class="key">Telefon</div><div class="val">${c.phone ? `<a href="tel:${c.phone}" style="color:var(--green)">${c.phone}</a>` : '—'}</div></div>
           <div class="info-item"><div class="key">Kilde</div><div class="val">${c.source || '—'}</div></div>
           <div class="info-item"><div class="key">Status</div><div class="val"><span class="badge ${c.status}">${c.status}</span></div></div>
           <div class="info-item" style="grid-column:1/-1"><div class="key">Kategori</div><div class="val">${c.category ? `<span class="cat-badge">${CATEGORIES[c.category]||c.category}</span>` : '—'}</div></div>
@@ -1183,14 +1192,14 @@ async function stripeImport() {
   btn.disabled = false;
   btn.textContent = '↓ Importer fra Stripe';
   if (res) {
-    alert(`✅ Importert ${res.imported} nye kunder\nHoppet over ${res.skipped} som allerede finnes`);
+    toast(`✅ Importert ${res.imported} nye, ${res.skipped} hoppet over`);
     render();
   }
 }
 
 async function stripeImportOne(customer) {
   const res = await api('/api/stripe/sync', 'POST');
-  if (res) { alert(`✅ Importert`); render(); }
+  if (res) { toast('✅ Importert'); render(); }
 }
 
 function openStripeCustomer(c) {
@@ -1281,22 +1290,22 @@ function openStripeCustomer(c) {
 async function stripeRefund(chargeId, amount, currency) {
   if (!confirm(`Refunder ${fmt(amount)} ${currency}?\n\nDette kan ikke angres.`)) return;
   const res = await api('/api/stripe/refund', 'POST', { charge_id: chargeId });
-  if (res && res.ok) { alert(`✅ Refusjon sendt: ${fmt(res.amount)}`); render(); }
-  else alert('Feil ved refusjon');
+  if (res && res.ok) { toast(`✅ Refundert ${fmt(res.amount)}`); render(); }
+  else toast('Feil ved refusjon', 'err');
 }
 
 async function stripeCancelSub(subId) {
   if (!confirm('Kanseller abonnementet?\n\nDet vil bli avsluttet ved slutten av inneværende periode.')) return;
   const res = await api('/api/stripe/subscriptions/cancel', 'POST', { subscription_id: subId });
-  if (res && res.ok) { alert(`✅ Abonnement kansellert\nAvsluttes: ${fmtDate(res.cancel_at)}`); render(); }
-  else alert('Feil ved kansellering');
+  if (res && res.ok) { toast(`✅ Kansellert – avsluttes ${fmtDate(res.cancel_at)}`); render(); }
+  else toast('Feil ved kansellering', 'err');
 }
 
 async function stripeRemindInvoice(invoiceId) {
   if (!confirm('Send fakturapåminnelse til kunden?')) return;
   const res = await api('/api/stripe/invoices/remind', 'POST', { invoice_id: invoiceId });
-  if (res && res.ok) alert('✅ Påminnelse sendt!');
-  else alert('Feil ved sending');
+  if (res && res.ok) toast('✅ Påminnelse sendt!');
+  else toast('Feil ved sending', 'err');
 }
 
 async function stripeCreateInvoice() {
@@ -1304,7 +1313,7 @@ async function stripeCreateInvoice() {
   const amount = parseFloat(document.getElementById('inv-amount').value);
   const desc = document.getElementById('inv-desc').value.trim();
   const days = parseInt(document.getElementById('inv-days').value) || 14;
-  if (!email || !amount || !desc) return alert('Fyll inn alle påkrevde felt');
+  if (!email || !amount || !desc) { toast('Fyll inn alle felt', 'warn'); return; }
   const resultEl = document.getElementById('inv-result');
   resultEl.innerHTML = `<div style="color:var(--muted);font-size:13px">Oppretter faktura...</div>`;
   const res = await api('/api/stripe/create-invoice', 'POST', { email, amount, description: desc, days_until_due: days });
@@ -1332,8 +1341,7 @@ function openNewContact() {
 }
 
 async function openEditContact(id) {
-  const all = await api('/api/contacts');
-  const c = all.find(x => x.id === id);
+  const c = _allContacts.find(x => x.id === id) || await api(`/api/contacts/${id}`);
   if (!c) return;
   editContactId = id;
   document.getElementById('modal-contact-title').textContent = 'Rediger lead';
@@ -1394,13 +1402,14 @@ async function saveContact() {
     category: document.getElementById('c-category').value || null,
     notes: document.getElementById('c-notes').value.trim() || null,
   };
-  if (!payload.name) return alert('Navn er påkrevd');
+  if (!payload.name) { toast('Navn er påkrevd', 'warn'); return; }
   if (editContactId) {
     await api(`/api/contacts/${editContactId}`, 'PATCH', payload);
   } else {
     await api('/api/contacts', 'POST', payload);
   }
   closeModal();
+  toast(editContactId ? '✅ Lead oppdatert' : '✅ Lead lagret');
   render();
   if (activePanelId) openPanel(activePanelId);
 }
@@ -1417,7 +1426,7 @@ async function saveDeal() {
     type: type,
     recurring_amount: type === 'subscription' ? (parseFloat(document.getElementById('d-recurring').value) || 0) : 0,
   };
-  if (!payload.title) return alert('Tittel er påkrevd');
+  if (!payload.title) { toast('Tittel er påkrevd', 'warn'); return; }
   await api('/api/deals', 'POST', payload);
   closeModal();
   if (activePanelId) openPanel(activePanelId);
@@ -1533,17 +1542,17 @@ async function sendGmail() {
     contact_id: document.getElementById('g-contact-id').value || "",
     image_filename: document.getElementById('g-image-filename').value || null,
   };
-  if (!payload.to || !payload.subject) return alert('Til og emne er påkrevd');
+  if (!payload.to || !payload.subject) { toast('Til og emne er påkrevd', 'warn'); return; }
   const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
   const r = await fetch(API + '/api/gmail/send', opts);
   const data = await r.json().catch(() => ({}));
   if (r.ok && data.ok) {
     closeModal();
-    alert('E-post sendt!');
+    toast('✅ E-post sendt!');
     if (activePanelId) openPanel(activePanelId, 'gmail');
   } else {
     const detail = typeof data.detail === 'object' ? JSON.stringify(data.detail) : (data.detail || r.status);
-    alert('Feil ved sending: ' + detail);
+    toast('Feil: ' + detail, 'err');
   }
 }
 
@@ -1793,7 +1802,7 @@ async function saveNyMal() {
   const subject = document.getElementById('nm-subject').value.trim();
   const body = document.getElementById('nm-body').value.trim();
   const category = document.getElementById('nm-category').value;
-  if (!name || !subject || !body) return alert('Navn, emne og melding er påkrevd');
+  if (!name || !subject || !body) { toast('Navn, emne og melding er påkrevd', 'warn'); return; }
 
   // Upload image if a new one was selected
   let image_filename = _nmExistingImage || null;
@@ -1901,6 +1910,49 @@ function exportCSV() {
   a.href = url; a.download = `leads_${new Date().toISOString().slice(0,10)}.csv`;
   a.click(); URL.revokeObjectURL(url);
 }
+
+// --- TOAST ---
+function toast(msg, type='ok') {
+  const t = document.createElement('div');
+  const bg = type==='ok' ? '#22c55e' : type==='err' ? '#ef4444' : '#f59e0b';
+  t.style.cssText = `position:fixed;bottom:80px;right:24px;z-index:999;background:${bg};color:#000;padding:10px 18px;border-radius:9px;font-size:13px;font-weight:700;box-shadow:0 4px 20px rgba(0,0,0,.5);opacity:1;transition:opacity .3s;pointer-events:none`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+
+// --- DEBOUNCE SEARCH ---
+let _searchTimer = null;
+function debouncedSearch(val) {
+  contactSearch = val;
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => renderContacts(true), 280);
+}
+
+// --- INLINE STATUS ---
+const STATUS_CYCLE = ['ny','kontaktet','møte','tilbud','kunde','tapt'];
+async function quickStatus(id, newStatus) {
+  const res = await api(`/api/contacts/${id}`, 'PATCH', { status: newStatus });
+  if (res) {
+    const idx = _allContacts.findIndex(c => c.id === id);
+    if (idx >= 0) _allContacts[idx].status = newStatus;
+    _renderContactsPage();
+    toast(newStatus === 'kunde' ? '🎉 Ny kunde!' : `Status: ${newStatus}`);
+  }
+}
+
+// --- KEYBOARD SHORTCUTS ---
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  const overlay = document.getElementById('modal-overlay');
+  if (e.key === 'Escape') { closePanel(); if(overlay.classList.contains('open')) closeModal(); return; }
+  if (e.key === '/' || e.key === 'f') { e.preventDefault(); showView('contacts'); setTimeout(()=>document.getElementById('search-input')?.focus(),100); return; }
+  if (e.key === 'n' && currentView === 'contacts') { openNewContact(); return; }
+  if (e.key === 'n' && currentView === 'deals') { document.querySelector('[onclick="openNewDeal"]')?.click(); return; }
+  const shortcuts = { '1':'dashboard','2':'contacts','3':'deals','4':'pipeline','5':'stripe','6':'gmail','7':'maler','8':'ordrebekreftelser' };
+  if (shortcuts[e.key] && !e.ctrlKey && !e.metaKey && !e.altKey) showView(shortcuts[e.key]);
+});
 
 // --- UTILS ---
 async function api(url, method='GET', body=null) {

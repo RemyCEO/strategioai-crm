@@ -352,6 +352,16 @@ def create_contact(c: Contact):
         row = cur.fetchone()
     return dict(row)
 
+@app.get("/api/contacts/{id}")
+def get_contact(id: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM contacts WHERE id=%s", (id,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Ikke funnet")
+    return dict(row)
+
 @app.patch("/api/contacts/{id}")
 async def update_contact(id: str, c: ContactUpdate):
     payload = {k: v for k, v in c.model_dump().items() if v is not None}
