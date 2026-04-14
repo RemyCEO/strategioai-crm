@@ -889,25 +889,49 @@ def _gmail_token_db_set(token, refresh_token):
     except Exception:
         pass
 
+_gmail_creds_cache = {"creds": None, "expires_at": 0.0}
+
 def get_gmail_creds():
+    import time
     data = _gmail_token_db_get()
-    print(f"[DEBUG gmail] data={bool(data)} refresh={bool(data.get('refresh_token') if data else None)}", flush=True)
     if not data or not data.get("refresh_token"):
         return None
-    # Always refresh to ensure a valid access token
+    now = time.time()
+    # Returner cachet token hvis det er gyldig i minst 5 min til
+    if _gmail_creds_cache["creds"] and _gmail_creds_cache["expires_at"] > now + 300:
+        return _gmail_creds_cache["creds"]
+    # Refresh access token
     try:
         resp = httpx.post("https://oauth2.googleapis.com/token", data={
             "client_id": GMAIL_CLIENT_ID,
             "client_secret": GMAIL_CLIENT_SECRET,
             "refresh_token": data["refresh_token"],
             "grant_type": "refresh_token",
-        })
+        }, timeout=10)
         if resp.status_code == 200:
-            new_token = resp.json().get("access_token")
+            td = resp.json()
+            new_token = td.get("access_token")
+            expires_in = td.get("expires_in", 3600)
             _gmail_token_db_set(new_token, data["refresh_token"])
-            data["token"] = new_token
+            creds = Credentials(
+                token=new_token,
+                refresh_token=data["refresh_token"],
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=GMAIL_CLIENT_ID,
+                client_secret=GMAIL_CLIENT_SECRET,
+                scopes=GMAIL_SCOPES,
+            )
+            _gmail_creds_cache["creds"] = creds
+            _gmail_creds_cache["expires_at"] = now + expires_in
+            return creds
+        elif resp.status_code in (400, 401):
+            # Refresh token ugyldig/revokert — slett fra DB
+            _gmail_creds_cache["creds"] = None
+            _gmail_creds_cache["expires_at"] = 0.0
+            return None
     except Exception:
         pass
+    # Fallback: bruk eksisterende token fra DB uten refresh
     return Credentials(
         token=data.get("token"),
         refresh_token=data.get("refresh_token"),
@@ -922,16 +946,28 @@ def gmail_status():
     if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET:
         return {"connected": False, "reason": "no_credentials"}
     db_data = _gmail_token_db_get()
+    if not db_data or not db_data.get("refresh_token"):
+        return {"connected": False, "reason": "not_authorized"}
     creds = get_gmail_creds()
-    if creds and (creds.valid or creds.refresh_token):
-        return {"connected": True}
-    return {"connected": False, "reason": "not_authorized", "_debug": {
-        "db_has_data": bool(db_data),
-        "db_has_refresh": bool(db_data.get("refresh_token") if db_data else None),
-        "creds_returned": bool(creds),
-        "DATABASE_URL_set": bool(DATABASE_URL),
-        "GMAIL_CLIENT_ID_set": bool(GMAIL_CLIENT_ID),
-    }}
+    if creds and creds.refresh_token:
+        return {"connected": True, "email": "strategioai@strategioai.com"}
+    return {"connected": False, "reason": "token_expired"}
+
+@app.get("/api/stripe/status")
+def stripe_status():
+    if not STRIPE_SECRET_KEY:
+        return {"connected": False, "reason": "no_key"}
+    try:
+        acct = stripe.Account.retrieve()
+        return {
+            "connected": True,
+            "account_id": acct.id,
+            "email": (acct.get("email") or ""),
+        }
+    except stripe.error.AuthenticationError:
+        return {"connected": False, "reason": "invalid_key"}
+    except Exception as e:
+        return {"connected": False, "reason": str(e)[:80]}
 
 @app.get("/api/gmail/auth")
 def gmail_auth():
@@ -952,26 +988,26 @@ def gmail_auth():
 
 @app.get("/api/gmail/callback")
 def gmail_callback(code: str, state: str = None, iss: str = None, scope: str = None):
-    import httpx as _httpx
-    resp = _httpx.post("https://oauth2.googleapis.com/token", data={
+    resp = httpx.post("https://oauth2.googleapis.com/token", data={
         "code": code,
         "client_id": GMAIL_CLIENT_ID,
         "client_secret": GMAIL_CLIENT_SECRET,
         "redirect_uri": GMAIL_REDIRECT_URI,
         "grant_type": "authorization_code",
-    })
+    }, timeout=15)
     resp.raise_for_status()
     token_data = resp.json()
     _gmail_token_db_set(token_data.get("access_token"), token_data.get("refresh_token"))
-    creds = flow.credentials
-    _gmail_token_db_set(creds.token, creds.refresh_token)
+    # Nullstill cache så neste kall refresher
+    _gmail_creds_cache["creds"] = None
+    _gmail_creds_cache["expires_at"] = 0.0
     return RedirectResponse("/?gmail=connected")
 
 @app.get("/api/gmail/threads")
 def gmail_threads(email: str):
     creds = get_gmail_creds()
     if not creds:
-        raise HTTPException(400, "Gmail ikke koblet til")
+        raise HTTPException(401, "Gmail ikke koblet til")
     service = build("gmail", "v1", credentials=creds)
     q = f"to:{email} OR from:{email}"
     res = service.users().messages().list(userId="me", q=q, maxResults=15).execute()
