@@ -582,9 +582,30 @@ def _stripe_sub_info(s):
         period_end = s.billing_cycle_anchor
     return amount, interval, plan_name, period_end
 
+_stripe_cache = {}
+_STRIPE_CACHE_TTL = 60  # sekunder
+
+def _cache_get(key):
+    if key in _stripe_cache:
+        data, ts = _stripe_cache[key]
+        if time.time() - ts < _STRIPE_CACHE_TTL:
+            return data
+    return None
+
+def _cache_set(key, data):
+    _stripe_cache[key] = (data, time.time())
+
+@app.post("/api/stripe/cache/clear")
+def stripe_cache_clear():
+    _stripe_cache.clear()
+    return {"ok": True}
+
 @app.get("/api/stripe/summary")
 def stripe_summary():
     stripe_ok()
+    cached = _cache_get("summary")
+    if cached:
+        return cached
     try:
         subs = stripe.Subscription.list(status="active", limit=100)
         mrr = 0.0
@@ -622,17 +643,22 @@ def stripe_summary():
     except Exception:
         total_revenue = 0.0
         recent_payments = []
-    return {
+    result = {
         "mrr": round(mrr, 2),
         "arr": round(mrr * 12, 2),
         "active_subs": active_sub_count,
         "total_revenue": round(total_revenue, 2),
         "recent_payments": recent_payments[:20],
     }
+    _cache_set("summary", result)
+    return result
 
 @app.get("/api/stripe/customers")
 def stripe_customers(limit: int = 100):
     stripe_ok()
+    cached = _cache_get("customers")
+    if cached:
+        return cached
     sub_by_cid = {}
     try:
         subs = stripe.Subscription.list(status="active", limit=100)
@@ -670,6 +696,7 @@ def stripe_customers(limit: int = 100):
             "balance": (c.balance or 0) / 100,
             "description": c.description,
         })
+    _cache_set("customers", result)
     return result
 
 @app.post("/api/stripe/sync")
@@ -697,6 +724,7 @@ def stripe_sync():
             if email:
                 crm_emails.add(email)
             imported += 1
+    _stripe_cache.clear()
     return {"imported": imported, "skipped": skipped}
 
 @app.get("/api/stripe/payments/{email}")
@@ -772,6 +800,9 @@ def stripe_invoices(email: str):
 @app.get("/api/stripe/invoices")
 def stripe_all_invoices(limit: int = 50):
     stripe_ok()
+    cached = _cache_get("all_invoices")
+    if cached:
+        return cached
     invoices = stripe.Invoice.list(limit=limit)
     result = []
     for inv in invoices.auto_paging_iter():
@@ -795,6 +826,7 @@ def stripe_all_invoices(limit: int = 50):
             "invoice_pdf": inv.invoice_pdf,
             "hosted_invoice_url": inv.hosted_invoice_url,
         })
+    _cache_set("all_invoices", result)
     return result
 
 class RefundRequest(BaseModel):
@@ -999,6 +1031,7 @@ async def stripe_webhook(request: Request):
                         )
                         await telegram(f"⚠️ Betaling feilet!\n<b>{row['name']}</b>\nBeløp: {amount:,.0f} {currency}")
 
+    _stripe_cache.clear()
     return {"ok": True}
 
 
