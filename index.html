@@ -1050,6 +1050,8 @@ function closePanel() {
 
 // --- STRIPE VIEW ---
 let _stripeTab = 'kunder';
+let _stripeInvoices = [];
+let _stripeInvFilter = 'alle';
 let _stripeCustomers = [];
 let _stripeSearch = '';
 let _stripeFilter = 'alle'; // alle | sub | ikke-crm
@@ -1097,6 +1099,7 @@ function _renderStripeView(summary) {
     <div class="tabs" style="margin-bottom:16px">
       <div class="tab ${_stripeTab==='kunder'?'active':''}" onclick="_stripeTab='kunder';_renderStripeTab(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">👥 Kunder (${_stripeCustomers.length})</div>
       <div class="tab ${_stripeTab==='betalinger'?'active':''}" onclick="_stripeTab='betalinger';_renderStripeTab(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">💸 Siste betalinger</div>
+      <div class="tab ${_stripeTab==='fakturaer'?'active':''}" onclick="_stripeTab='fakturaer';_loadAndRenderInvoices(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">📋 Fakturaer</div>
       <div class="tab ${_stripeTab==='faktura'?'active':''}" onclick="_stripeTab='faktura';_renderStripeTab(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">📄 Opprett faktura</div>
     </div>`;
 
@@ -1108,7 +1111,7 @@ function _renderStripeTab(s) {
   _renderStripeTabContent(s);
   // Update active tab highlight
   document.querySelectorAll('.tab').forEach((t,i) => {
-    const views = ['kunder','betalinger','faktura'];
+    const views = ['kunder','betalinger','fakturaer','faktura'];
     t.classList.toggle('active', views[i] === _stripeTab);
   });
 }
@@ -1195,6 +1198,50 @@ function _renderStripeTabContent(s) {
         </table>
       </div>`;
 
+  } else if (_stripeTab === 'fakturaer') {
+    let filtered = _stripeInvoices;
+    if (_stripeInvFilter !== 'alle') filtered = filtered.filter(i => i.status === _stripeInvFilter);
+    const filterBar = `
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+        <button class="btn btn-sm ${_stripeInvFilter==='alle'?'btn-green':'btn-ghost'}" onclick="_stripeInvFilter='alle';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Alle (${_stripeInvoices.length})</button>
+        <button class="btn btn-sm ${_stripeInvFilter==='open'?'btn-green':'btn-ghost'}" onclick="_stripeInvFilter='open';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Åpne</button>
+        <button class="btn btn-sm ${_stripeInvFilter==='paid'?'btn-green':'btn-ghost'}" onclick="_stripeInvFilter='paid';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Betalte</button>
+        <button class="btn btn-sm ${_stripeInvFilter==='draft'?'btn-green':'btn-ghost'}" onclick="_stripeInvFilter='draft';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Utkast</button>
+        <button class="btn btn-sm ${_stripeInvFilter==='void'?'btn-green':'btn-ghost'}" onclick="_stripeInvFilter='void';_renderStripeTabContent(${JSON.stringify(s).replace(/</g,'\\u003c').replace(/"/g,'&quot;')})">Kansellerte</button>
+      </div>`;
+    if (filtered.length === 0) {
+      el.innerHTML = filterBar + `<div class="empty"><div class="emoji">📋</div><p>Ingen fakturaer funnet</p></div>`;
+      return;
+    }
+    const statusBadge = (st) => {
+      const map = {open:'ny',paid:'vunnet',draft:'kontaktet',void:'tapt',uncollectible:'tapt'};
+      const labels = {open:'Åpen',paid:'Betalt',draft:'Utkast',void:'Kansellert',uncollectible:'Uinnkrevbar'};
+      return `<span class="badge ${map[st]||'ny'}" style="font-size:10px">${labels[st]||st}</span>`;
+    };
+    el.innerHTML = filterBar + `
+      <div class="table-wrap">
+        <div class="table-header"><span style="font-size:13px;font-weight:600">${filtered.length} fakturaer</span></div>
+        <table>
+          <thead><tr><th>Nr.</th><th>Kunde</th><th>E-post</th><th>Beløp</th><th>Status</th><th>Forfaller</th><th>Opprettet</th><th>Handlinger</th></tr></thead>
+          <tbody>
+            ${filtered.map(inv => `
+              <tr>
+                <td style="font-family:monospace;font-size:11px">${inv.number||'—'}</td>
+                <td><strong>${inv.customer_name||'—'}</strong></td>
+                <td style="font-size:12px">${inv.customer_email||'—'}</td>
+                <td style="font-weight:600;color:${inv.status==='paid'?'var(--green)':inv.status==='open'?'#f59e0b':'var(--muted)'}">${fmt(inv.amount_due)} ${inv.currency}</td>
+                <td>${statusBadge(inv.status)}</td>
+                <td style="color:var(--muted);font-size:12px">${inv.due_date?fmtDate(inv.due_date):'—'}</td>
+                <td style="color:var(--muted);font-size:12px">${fmtDate(inv.created)}</td>
+                <td style="white-space:nowrap">
+                  ${inv.hosted_invoice_url ? `<a href="${inv.hosted_invoice_url}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none;font-size:11px">🔗 Vis</a>` : ''}
+                  ${inv.invoice_pdf ? `<a href="${inv.invoice_pdf}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none;font-size:11px">📄 PDF</a>` : ''}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
   } else if (_stripeTab === 'faktura') {
     el.innerHTML = `
       <div style="max-width:480px">
@@ -1230,6 +1277,20 @@ async function stripeImport() {
 async function stripeImportOne(customer) {
   const res = await api('/api/stripe/sync', 'POST');
   if (res) { toast('✅ Importert'); render(); }
+}
+
+async function _loadAndRenderInvoices(s) {
+  const el = document.getElementById('stripe-tab-content');
+  if (el) el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Laster fakturaer...</div>';
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const views = ['kunder','betalinger','fakturaer','faktura'];
+    t.classList.toggle('active', views[i] === _stripeTab);
+  });
+  try {
+    const res = await fetch('/api/stripe/invoices');
+    _stripeInvoices = await res.json();
+  } catch(e) { _stripeInvoices = []; }
+  _renderStripeTabContent(s);
 }
 
 function openStripeCustomer(c) {

@@ -769,6 +769,34 @@ def stripe_invoices(email: str):
         })
     return result
 
+@app.get("/api/stripe/invoices")
+def stripe_all_invoices(limit: int = 50):
+    stripe_ok()
+    invoices = stripe.Invoice.list(limit=limit)
+    result = []
+    for inv in invoices.auto_paging_iter():
+        customer_name = ""
+        customer_email = ""
+        if hasattr(inv, 'customer_name') and inv.customer_name:
+            customer_name = inv.customer_name
+        if hasattr(inv, 'customer_email') and inv.customer_email:
+            customer_email = inv.customer_email
+        result.append({
+            "id": inv.id,
+            "number": inv.number,
+            "customer_name": customer_name,
+            "customer_email": customer_email,
+            "amount_due": (inv.amount_due or 0) / 100,
+            "amount_paid": (inv.amount_paid or 0) / 100,
+            "currency": (inv.currency or "").upper(),
+            "status": inv.status,
+            "due_date": datetime.fromtimestamp(inv.due_date, tz=timezone.utc).isoformat() if inv.due_date else None,
+            "created": datetime.fromtimestamp(inv.created, tz=timezone.utc).isoformat(),
+            "invoice_pdf": inv.invoice_pdf,
+            "hosted_invoice_url": inv.hosted_invoice_url,
+        })
+    return result
+
 class RefundRequest(BaseModel):
     charge_id: str
     amount: float = None  # None = full refund
