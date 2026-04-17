@@ -15,7 +15,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 from datetime import datetime, timezone
-from contextlib import contextmanager
+from contextlib import contextmanager, asynccontextmanager
+import threading
+import time
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GRequest
 from google_auth_oauthlib.flow import Flow
@@ -23,7 +25,49 @@ from googleapiclient.discovery import build
 
 load_dotenv()
 
-app = FastAPI()
+STRIPE_SYNC_INTERVAL = int(os.getenv("STRIPE_SYNC_INTERVAL", "3600"))  # sekunder, default 1 time
+
+def _stripe_auto_sync():
+    """Bakgrunnstråd som synkroniserer Stripe-kunder til CRM hver time."""
+    while True:
+        time.sleep(STRIPE_SYNC_INTERVAL)
+        if not STRIPE_SECRET_KEY:
+            continue
+        try:
+            stripe.api_key = STRIPE_SECRET_KEY
+            customers = stripe.Customer.list(limit=100)
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT email FROM contacts")
+                crm_emails = {(r["email"] or "").lower() for r in cur.fetchall()}
+                imported = 0
+                for c in customers.auto_paging_iter():
+                    email = (c.email or "").lower()
+                    if email and email in crm_emails:
+                        continue
+                    new_id = str(uuid.uuid4())
+                    now = datetime.now(timezone.utc).isoformat()
+                    cur.execute(
+                        "INSERT INTO contacts (id, name, company, email, phone, source, status, notes, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (new_id, c.name or c.email or "Ukjent", None, c.email, c.phone,
+                         "stripe", "lead", f"Stripe ID: {c.id}", now, now)
+                    )
+                    if email:
+                        crm_emails.add(email)
+                    imported += 1
+                if imported > 0:
+                    print(f"[Stripe auto-sync] Importerte {imported} nye kunder")
+        except Exception as e:
+            print(f"[Stripe auto-sync] Feil: {e}")
+
+@asynccontextmanager
+async def lifespan(app):
+    t = threading.Thread(target=_stripe_auto_sync, daemon=True)
+    t.start()
+    print(f"[Stripe auto-sync] Startet — synkroniserer hver {STRIPE_SYNC_INTERVAL}s")
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(_static_dir, exist_ok=True)
@@ -871,6 +915,23 @@ async def stripe_webhook(request: Request):
                     if contact.get("status") not in ("kunde", "aktiv"):
                         cur.execute("UPDATE contacts SET status='kunde', updated_at=%s WHERE id=%s", (now, contact["id"]))
                     await telegram(f"Ny betaling via Stripe!\n<b>{contact['name']}</b>\nBeløp: {amount:,.0f} {currency}")
+
+    elif etype == "customer.created":
+        obj = event["data"]["object"]
+        email = (obj.get("email") or "").lower()
+        if email:
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email,))
+                if not cur.fetchone():
+                    new_id = str(uuid.uuid4())
+                    now = datetime.now(timezone.utc).isoformat()
+                    cur.execute(
+                        "INSERT INTO contacts (id, name, company, email, phone, source, status, notes, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (new_id, obj.get("name") or email, None, obj.get("email"), obj.get("phone"),
+                         "stripe", "lead", f"Stripe ID: {obj['id']}", now, now)
+                    )
+                    await telegram(f"Ny Stripe-kunde importert til CRM!\n<b>{obj.get('name') or email}</b>")
 
     elif etype == "customer.subscription.deleted":
         customer_id = event["data"]["object"].get("customer")
