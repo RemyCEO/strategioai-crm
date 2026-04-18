@@ -285,6 +285,8 @@ tbody td:first-child { color:var(--text); }
     <div class="nav-label">Integrasjoner</div>
     <div class="nav-item" onclick="showView('stripe')"><span class="icon">💳</span> Stripe <span id="stripe-dot" style="display:none;width:7px;height:7px;border-radius:50%;margin-left:auto"></span></div>
     <div class="nav-item" id="nav-gmail" onclick="showView('gmail')"><span class="icon">📧</span> Gmail <span id="gmail-dot" style="display:none;width:7px;height:7px;border-radius:50%;margin-left:auto"></span></div>
+    <div class="nav-label">Lead Scraping</div>
+    <div class="nav-item" onclick="showView('leadrapporter')"><span class="icon">🔍</span> Lead-rapporter</div>
     <div class="nav-label">Innhold</div>
     <div class="nav-item" onclick="showView('maler')"><span class="icon">📝</span> E-postmaler</div>
     <div class="nav-item" onclick="showView('ordrebekreftelser')"><span class="icon">📋</span> Ordrebekreftelser</div>
@@ -555,9 +557,9 @@ function showView(view) {
   currentView = view;
   location.hash = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','maler','ordrebekreftelser'].indexOf(view);
+  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','leadrapporter','maler','ordrebekreftelser'].indexOf(view);
   if (navIdx >= 0) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
+  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', leadrapporter:'Lead-rapporter', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
   document.getElementById('view-title').textContent = titles[view] || view;
   closePanel();
   render();
@@ -579,6 +581,7 @@ async function render() {
   else if (currentView === 'gmail') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openComposeGmail()">✉️ Skriv e-post</button>`; await renderGmail(); }
   else if (currentView === 'maler') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('email')">+ Ny mal</button>`; await renderMaler(); }
   else if (currentView === 'ordrebekreftelser') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('ordrebekreftelse')">+ Ny ordrebekreftelse</button>`; await renderOrdrebekreftelser(); }
+  else if (currentView === 'leadrapporter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="triggerLeadScrape()">🔍 Kjør scraping nå</button>`; await renderLeadRapporter(); }
 }
 
 // --- DASHBOARD ---
@@ -2155,6 +2158,107 @@ async function boot() {
   } catch(e) {}
   render();
 }
+// --- LEAD RAPPORTER ---
+async function renderLeadRapporter() {
+  const content = document.getElementById('content');
+  const [reports, stats] = await Promise.all([
+    api('/api/lead-reports'),
+    api('/api/lead-stats')
+  ]);
+
+  const catIcons = { ai_resepsjonist:'🤖', trenger_nettside:'🌐', generell_tjeneste:'💼' };
+  const catLabels = { ai_resepsjonist:'AI-resepsjonist', trenger_nettside:'Trenger nettside', generell_tjeneste:'Generell tjeneste' };
+
+  // Stats-kort
+  const statsHtml = stats ? `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Totalt scraped</div>
+        <div style="font-size:28px;font-weight:800;color:var(--green);margin-top:4px">${stats.total || 0}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">I dag</div>
+        <div style="font-size:28px;font-weight:800;color:var(--text);margin-top:4px">${stats.today || 0}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Denne uken</div>
+        <div style="font-size:28px;font-weight:800;color:var(--text);margin-top:4px">${stats.this_week || 0}</div>
+      </div>
+      ${Object.entries(stats.by_category || {}).map(([cat,n]) => `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
+          <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">${catIcons[cat]||''} ${catLabels[cat]||cat}</div>
+          <div style="font-size:28px;font-weight:800;color:var(--text);margin-top:4px">${n}</div>
+        </div>`).join('')}
+    </div>` : '';
+
+  // Rapporter-liste
+  let reportsHtml = '';
+  if (!reports || reports.length === 0) {
+    reportsHtml = `<div class="empty" style="padding:60px 20px"><div class="emoji">🔍</div><p>Ingen lead-rapporter ennå</p><p style="color:var(--muted);font-size:12px">Rapporter genereres automatisk hver morgen, eller trykk "Kjør scraping nå"</p></div>`;
+  } else {
+    reportsHtml = reports.map(r => {
+      const d = r.data || {};
+      const topLeads = d.top_leads || [];
+      const searches = (d.searches || []).map(s => `${s.industry} (${s.city})`).join(', ');
+      const byCat = d.by_category || {};
+      return `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-size:15px;font-weight:700;color:var(--text)">📅 ${r.report_date}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">${searches || 'Ingen søk registrert'}</div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center">
+              <span style="font-size:12px;color:var(--green);font-weight:600">✅ ${d.stats?.imported || 0} nye</span>
+              <span style="font-size:12px;color:var(--muted)">${d.stats?.total || 0} funnet</span>
+            </div>
+          </div>
+          <div style="padding:14px 20px;display:flex;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+            ${Object.entries(byCat).map(([cat,n]) => `
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+                <span>${catIcons[cat]||''}</span>
+                <span style="color:var(--muted)">${catLabels[cat]||cat}:</span>
+                <span style="font-weight:700;color:var(--text)">${n}</span>
+              </div>`).join('')}
+          </div>
+          ${topLeads.length > 0 ? `
+            <div style="padding:14px 20px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:10px">🏆 Topp leads</div>
+              ${topLeads.map((l,i) => `
+                <div style="display:flex;align-items:flex-start;gap:12px;padding:8px 0;${i < topLeads.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+                  <div style="min-width:24px;height:24px;border-radius:50%;background:${l.score>=70?'rgba(34,197,94,.15)':l.score>=50?'rgba(234,179,8,.15)':'rgba(239,68,68,.15)'};color:${l.score>=70?'var(--green)':l.score>=50?'#eab308':'#ef4444'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800">${l.score}</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:var(--text)">${l.name} <span style="font-size:11px;color:var(--muted);font-weight:400">${l.city || ''}</span></div>
+                    <div style="font-size:11px;color:var(--muted);margin-top:2px">${catIcons[l.category]||''} ${catLabels[l.category]||l.category} ${l.phone ? '· 📞 '+l.phone : ''} ${l.rating ? '· ⭐ '+l.rating : ''}</div>
+                    <div style="font-size:11px;color:var(--green);margin-top:4px;font-weight:500">💡 ${l.strategy}</div>
+                  </div>
+                </div>`).join('')}
+            </div>` : ''}
+        </div>`;
+    }).join('');
+  }
+
+  content.innerHTML = statsHtml + reportsHtml;
+}
+
+async function triggerLeadScrape() {
+  if (!confirm('Kjøre lead-scraping nå? (3 tilfeldige bransjer × 3 byer)')) return;
+  const btn = document.querySelector('.topbar-actions .btn-green');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Scraper...'; }
+  try {
+    const res = await api('/api/lead-scrape', 'POST');
+    if (res && res.ok) {
+      alert(`Ferdig! ${res.stats.imported} nye leads importert av ${res.stats.total} funnet.`);
+      await renderLeadRapporter();
+    } else {
+      alert('Feil ved scraping: ' + JSON.stringify(res));
+    }
+  } catch(e) {
+    alert('Feil: ' + e.message);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔍 Kjør scraping nå'; }
+}
+
 boot();
 </script>
 </body>

@@ -26,6 +26,254 @@ from googleapiclient.discovery import build
 load_dotenv()
 
 STRIPE_SYNC_INTERVAL = int(os.getenv("STRIPE_SYNC_INTERVAL", "3600"))  # sekunder, default 1 time
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
+LEAD_SCRAPE_HOUR = int(os.getenv("LEAD_SCRAPE_HOUR", "6"))  # kjør kl 06:00 UTC (08:00 norsk tid)
+
+# --- Lead scraping konfigurasjon ---
+
+# Bransjer som trenger AI-resepsjonist (mye telefon/booking)
+AI_RESEPSJONIST_BRANSJER = [
+    "restaurant", "tannlege", "frisør", "treningssenter", "hotell",
+    "klinikk", "fysioterapeut", "veterinær", "bilverksted", "eiendomsmegler",
+    "advokatkontor", "regnskapsfører", "hudpleie", "massasje", "spa",
+    "pizzeria", "kebab", "café", "bakeri", "blomsterbutikk",
+    "rørlegger", "elektriker", "rengjøring", "vaktmester", "flyttebyrå",
+]
+
+# Norske byer å rotere gjennom
+NORSKE_BYER = [
+    "Oslo", "Bergen", "Trondheim", "Stavanger", "Drammen",
+    "Kristiansand", "Tromsø", "Fredrikstad", "Sandnes", "Sarpsborg",
+    "Bodø", "Ålesund", "Tønsberg", "Haugesund", "Sandefjord",
+    "Moss", "Arendal", "Hamar", "Larvik", "Halden",
+    "Molde", "Harstad", "Lillehammer", "Gjøvik", "Kongsberg",
+    "Ski", "Asker", "Lørenskog", "Jessheim", "Lillestrøm",
+]
+
+def _lead_score(biz: dict) -> int:
+    """Scorer en lead 0-100 basert på potensial."""
+    score = 30  # base
+    # Ingen nettside = trenger hjelp
+    if not biz.get("website"):
+        score += 25
+    # Har telefon = kontaktbar
+    if biz.get("phone"):
+        score += 10
+    # Lav rating = trenger forbedring
+    rating = biz.get("rating", 0)
+    if rating and rating < 3.5:
+        score += 10
+    elif rating and rating >= 4.5:
+        score -= 5
+    # Mange reviews = etablert bedrift med budsjett
+    reviews = biz.get("user_ratings_total", 0)
+    if reviews and reviews > 50:
+        score += 10
+    elif reviews and reviews > 20:
+        score += 5
+    # AI-resepsjonist bransje = høy verdi
+    if biz.get("category") == "ai_resepsjonist":
+        score += 15
+    return min(100, max(0, score))
+
+def _suggest_strategy(biz: dict) -> str:
+    """Foreslår salgsstrategi basert på lead-data."""
+    strategies = []
+    if not biz.get("website"):
+        strategies.append("Tilby nettside + AI-chatbot pakke")
+    if biz.get("category") == "ai_resepsjonist":
+        strategies.append(f"Pitch AI-resepsjonist — {biz.get('industry','')} har mye telefon/booking")
+    if biz.get("rating") and biz["rating"] < 3.5:
+        strategies.append("Vis hvordan AI kundeservice kan forbedre ratings")
+    reviews = biz.get("user_ratings_total", 0)
+    if reviews and reviews > 50:
+        strategies.append("Etablert bedrift — fokuser på effektivisering og kostnadsbesparelse")
+    if not strategies:
+        strategies.append("Generell AI-tjeneste pitch — automatisering og vekst")
+    return " | ".join(strategies)
+
+def _categorize_lead(biz: dict, search_industry: str) -> str:
+    """Kategoriserer lead i en av tre kategorier."""
+    if not biz.get("website"):
+        return "trenger_nettside"
+    if search_industry.lower() in [b.lower() for b in AI_RESEPSJONIST_BRANSJER]:
+        return "ai_resepsjonist"
+    return "generell_tjeneste"
+
+def _scrape_places(industry: str, city: str) -> list:
+    """Søker Google Places API for bedrifter i en bransje+by."""
+    if not GOOGLE_PLACES_API_KEY:
+        return []
+    import requests
+    results = []
+    query = f"{industry} i {city}"
+    url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+    params = {
+        "query": query,
+        "key": GOOGLE_PLACES_API_KEY,
+        "language": "no",
+        "region": "no",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        data = resp.json()
+        for place in data.get("results", []):
+            place_id = place.get("place_id", "")
+            # Hent detaljer for telefon og nettside
+            detail = {}
+            if place_id:
+                detail_url = "https://maps.googleapis.com/maps/api/place/details/json"
+                detail_params = {
+                    "place_id": place_id,
+                    "fields": "formatted_phone_number,website,url",
+                    "key": GOOGLE_PLACES_API_KEY,
+                    "language": "no",
+                }
+                try:
+                    dr = requests.get(detail_url, params=detail_params, timeout=10)
+                    detail = dr.json().get("result", {})
+                except Exception:
+                    pass
+
+            biz = {
+                "name": place.get("name", ""),
+                "address": place.get("formatted_address", ""),
+                "phone": detail.get("formatted_phone_number", ""),
+                "website": detail.get("website", ""),
+                "rating": place.get("rating", 0),
+                "user_ratings_total": place.get("user_ratings_total", 0),
+                "maps_url": detail.get("url", ""),
+                "place_id": place_id,
+                "industry": industry,
+                "city": city,
+            }
+            biz["category"] = _categorize_lead(biz, industry)
+            biz["score"] = _lead_score(biz)
+            biz["strategy"] = _suggest_strategy(biz)
+            results.append(biz)
+    except Exception as e:
+        print(f"[Lead scraper] Feil for {query}: {e}")
+    return results
+
+def _import_leads_to_crm(leads: list) -> dict:
+    """Importerer leads til CRM-databasen. Returnerer statistikk."""
+    imported = 0
+    skipped = 0
+    with get_conn() as conn:
+        cur = conn.cursor()
+        # Hent eksisterende for deduplisering
+        cur.execute("SELECT name, phone FROM contacts")
+        existing = set()
+        for r in cur.fetchall():
+            existing.add((r["name"] or "").lower())
+            if r["phone"]:
+                existing.add(r["phone"].replace(" ", ""))
+        for lead in leads:
+            name_key = lead["name"].lower()
+            phone_key = (lead.get("phone") or "").replace(" ", "")
+            if name_key in existing or (phone_key and phone_key in existing):
+                skipped += 1
+                continue
+            new_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc).isoformat()
+            notes = f"Score: {lead['score']}/100 | {lead['strategy']}"
+            if lead.get("maps_url"):
+                notes += f" | Maps: {lead['maps_url']}"
+            if lead.get("rating"):
+                notes += f" | Rating: {lead['rating']} ({lead.get('user_ratings_total',0)} reviews)"
+            cur.execute(
+                "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (new_id, lead["name"], lead.get("industry",""), None, lead.get("phone"),
+                 "google_places", "lead", lead["category"], notes, now, now)
+            )
+            existing.add(name_key)
+            if phone_key:
+                existing.add(phone_key)
+            imported += 1
+    return {"imported": imported, "skipped": skipped, "total": len(leads)}
+
+def _daily_lead_scrape():
+    """Bakgrunnstråd som scraper leads daglig kl LEAD_SCRAPE_HOUR UTC."""
+    import random
+    last_scrape_date = None
+    while True:
+        now = datetime.now(timezone.utc)
+        today = now.date().isoformat()
+        if now.hour >= LEAD_SCRAPE_HOUR and last_scrape_date != today:
+            last_scrape_date = today
+            print(f"[Lead scraper] Starter daglig scraping {today}...")
+            # Velg 3 tilfeldige bransjer og 3 tilfeldige byer
+            industries = random.sample(AI_RESEPSJONIST_BRANSJER, min(3, len(AI_RESEPSJONIST_BRANSJER)))
+            cities = random.sample(NORSKE_BYER, min(3, len(NORSKE_BYER)))
+            all_leads = []
+            report_lines = []
+            for industry in industries:
+                for city in cities:
+                    leads = _scrape_places(industry, city)
+                    all_leads.extend(leads)
+                    print(f"  [Lead scraper] {industry} i {city}: {len(leads)} leads")
+                    time.sleep(2)  # rate limit
+            if all_leads:
+                stats = _import_leads_to_crm(all_leads)
+                # Kategoriser
+                by_cat = {"ai_resepsjonist": [], "trenger_nettside": [], "generell_tjeneste": []}
+                for l in all_leads:
+                    by_cat.get(l["category"], by_cat["generell_tjeneste"]).append(l)
+                # Topp 5 leads
+                top5 = sorted(all_leads, key=lambda x: x["score"], reverse=True)[:5]
+                # Lagre rapport til database
+                report_data = {
+                    "date": today,
+                    "searches": [{"industry": i, "city": c} for i in industries for c in cities],
+                    "stats": stats,
+                    "by_category": {k: len(v) for k, v in by_cat.items()},
+                    "top_leads": [{"name": l["name"], "score": l["score"], "category": l["category"],
+                                   "phone": l.get("phone",""), "city": l["city"],
+                                   "industry": l["industry"], "strategy": l["strategy"],
+                                   "website": l.get("website",""), "rating": l.get("rating",0)} for l in top5],
+                }
+                try:
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO lead_reports (id, report_date, data, created_at) VALUES (%s,%s,%s,%s)",
+                            (str(uuid.uuid4()), today, json.dumps(report_data, ensure_ascii=False),
+                             datetime.now(timezone.utc).isoformat())
+                        )
+                except Exception as e:
+                    print(f"[Lead scraper] Feil ved lagring av rapport: {e}")
+                # Telegram-rapport
+                msg = f"🔍 <b>Daglig Lead-rapport — {today}</b>\n\n"
+                msg += f"📊 Søkte: {', '.join(industries)} i {', '.join(cities)}\n"
+                msg += f"📥 Totalt funnet: <b>{stats['total']}</b>\n"
+                msg += f"✅ Nye importert: <b>{stats['imported']}</b>\n"
+                msg += f"⏭ Duplikater hoppet over: {stats['skipped']}\n\n"
+                msg += f"📂 <b>Kategorier:</b>\n"
+                msg += f"  🤖 AI-resepsjonist: {by_cat.get('ai_resepsjonist', []).__len__()}\n"
+                msg += f"  🌐 Trenger nettside: {by_cat.get('trenger_nettside', []).__len__()}\n"
+                msg += f"  💼 Generell: {by_cat.get('generell_tjeneste', []).__len__()}\n\n"
+                if top5:
+                    msg += "🏆 <b>Topp 5 leads å satse på:</b>\n"
+                    for i, l in enumerate(top5, 1):
+                        msg += f"\n<b>{i}. {l['name']}</b> ({l['city']})\n"
+                        msg += f"   Score: {l['score']}/100 | {l['category']}\n"
+                        if l.get("phone"):
+                            msg += f"   📞 {l['phone']}\n"
+                        msg += f"   💡 {l['strategy']}\n"
+                try:
+                    import requests as _req
+                    if TELEGRAM_TOKEN:
+                        _req.post(
+                            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                            json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
+                            timeout=10,
+                        )
+                except Exception as e:
+                    print(f"[Lead scraper] Telegram-feil: {e}")
+                print(f"[Lead scraper] Ferdig: {stats['imported']} importert, {stats['skipped']} duplikater")
+            else:
+                print("[Lead scraper] Ingen leads funnet i dag")
+        time.sleep(300)  # sjekk hvert 5. minutt
 
 def _stripe_auto_sync():
     """Bakgrunnstråd som synkroniserer Stripe-kunder til CRM hver time."""
@@ -65,6 +313,10 @@ async def lifespan(app):
     t = threading.Thread(target=_stripe_auto_sync, daemon=True)
     t.start()
     print(f"[Stripe auto-sync] Startet — synkroniserer hver {STRIPE_SYNC_INTERVAL}s")
+    if GOOGLE_PLACES_API_KEY:
+        t2 = threading.Thread(target=_daily_lead_scrape, daemon=True)
+        t2.start()
+        print(f"[Lead scraper] Startet — kjører daglig kl {LEAD_SCRAPE_HOUR}:00 UTC")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -203,6 +455,15 @@ def init_db():
                     ALTER TABLE contacts ADD COLUMN followup_date TEXT;
                 END IF;
             END$$;
+        """)
+        # Lead-rapporter tabell
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS lead_reports (
+                id TEXT PRIMARY KEY,
+                report_date TEXT NOT NULL,
+                data TEXT NOT NULL,
+                created_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
+            );
         """)
 
 
@@ -1404,6 +1665,107 @@ async def trigger_daily_report():
     """Trigger daglig rapport manuelt (kalles av Railway cron eller n8n)."""
     await send_daily_report()
     return {"ok": True}
+
+
+# --- Lead-rapporter API ---
+
+@app.get("/api/lead-reports")
+def get_lead_reports():
+    """Hent alle lead-rapporter, nyeste først."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, report_date, data, created_at FROM lead_reports ORDER BY report_date DESC LIMIT 30")
+        rows = cur.fetchall()
+    result = []
+    for r in rows:
+        try:
+            data = json.loads(r["data"]) if isinstance(r["data"], str) else r["data"]
+        except Exception:
+            data = {}
+        result.append({
+            "id": r["id"],
+            "report_date": r["report_date"],
+            "data": data,
+            "created_at": r["created_at"],
+        })
+    return result
+
+@app.get("/api/lead-reports/{report_date}")
+def get_lead_report(report_date: str):
+    """Hent en spesifikk lead-rapport etter dato (YYYY-MM-DD)."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, report_date, data, created_at FROM lead_reports WHERE report_date = %s", (report_date,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Rapport ikke funnet")
+    try:
+        data = json.loads(row["data"]) if isinstance(row["data"], str) else row["data"]
+    except Exception:
+        data = {}
+    return {"id": row["id"], "report_date": row["report_date"], "data": data, "created_at": row["created_at"]}
+
+@app.post("/api/lead-scrape")
+def trigger_lead_scrape(industries: list[str] = None, cities: list[str] = None):
+    """Kjør lead-scraping manuelt med valgfrie bransjer og byer."""
+    import random
+    if not GOOGLE_PLACES_API_KEY:
+        raise HTTPException(400, "GOOGLE_PLACES_API_KEY ikke konfigurert")
+    if not industries:
+        industries = random.sample(AI_RESEPSJONIST_BRANSJER, min(3, len(AI_RESEPSJONIST_BRANSJER)))
+    if not cities:
+        cities = random.sample(NORSKE_BYER, min(3, len(NORSKE_BYER)))
+    all_leads = []
+    for industry in industries:
+        for city in cities:
+            leads = _scrape_places(industry, city)
+            all_leads.extend(leads)
+    stats = _import_leads_to_crm(all_leads) if all_leads else {"imported": 0, "skipped": 0, "total": 0}
+    # Kategoriser
+    by_cat = {"ai_resepsjonist": 0, "trenger_nettside": 0, "generell_tjeneste": 0}
+    for l in all_leads:
+        cat = l.get("category", "generell_tjeneste")
+        by_cat[cat] = by_cat.get(cat, 0) + 1
+    top5 = sorted(all_leads, key=lambda x: x["score"], reverse=True)[:5]
+    # Lagre rapport
+    today = datetime.now(timezone.utc).date().isoformat()
+    report_data = {
+        "date": today,
+        "searches": [{"industry": i, "city": c} for i in industries for c in cities],
+        "stats": stats,
+        "by_category": by_cat,
+        "top_leads": [{"name": l["name"], "score": l["score"], "category": l["category"],
+                       "phone": l.get("phone",""), "city": l["city"],
+                       "industry": l["industry"], "strategy": l["strategy"],
+                       "website": l.get("website",""), "rating": l.get("rating",0)} for l in top5],
+    }
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO lead_reports (id, report_date, data, created_at) VALUES (%s,%s,%s,%s)",
+                (str(uuid.uuid4()), today, json.dumps(report_data, ensure_ascii=False),
+                 datetime.now(timezone.utc).isoformat())
+            )
+    except Exception:
+        pass
+    return {"ok": True, "stats": stats, "by_category": by_cat, "top_leads": report_data["top_leads"],
+            "searches": report_data["searches"]}
+
+@app.get("/api/lead-stats")
+def get_lead_stats():
+    """Statistikk over leads fra scraping."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places'")
+        total = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places' AND created_at >= now() - interval '24 hours'")
+        today = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places' AND created_at >= now() - interval '7 days'")
+        week = cur.fetchone()["n"]
+        cur.execute("SELECT category, COUNT(*) AS n FROM contacts WHERE source='google_places' GROUP BY category")
+        cats = {r["category"]: r["n"] for r in cur.fetchall()}
+    return {"total": total, "today": today, "this_week": week, "by_category": cats}
 
 
 # --- Init ---
