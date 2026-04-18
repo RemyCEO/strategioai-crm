@@ -203,8 +203,8 @@ def _daily_lead_scrape():
             last_scrape_date = today
             print(f"[Lead scraper] Starter daglig scraping {today}...")
             # Velg 3 tilfeldige bransjer og 3 tilfeldige byer
-            industries = random.sample(AI_RESEPSJONIST_BRANSJER, min(3, len(AI_RESEPSJONIST_BRANSJER)))
-            cities = random.sample(NORSKE_BYER, min(3, len(NORSKE_BYER)))
+            industries = random.sample(AI_RESEPSJONIST_BRANSJER, min(5, len(AI_RESEPSJONIST_BRANSJER)))
+            cities = random.sample(NORSKE_BYER, min(5, len(NORSKE_BYER)))
             all_leads = []
             report_lines = []
             for industry in industries:
@@ -1712,9 +1712,9 @@ def trigger_lead_scrape(industries: list[str] = None, cities: list[str] = None):
     if not GOOGLE_PLACES_API_KEY:
         raise HTTPException(400, "GOOGLE_PLACES_API_KEY ikke konfigurert")
     if not industries:
-        industries = random.sample(AI_RESEPSJONIST_BRANSJER, min(3, len(AI_RESEPSJONIST_BRANSJER)))
+        industries = random.sample(AI_RESEPSJONIST_BRANSJER, min(5, len(AI_RESEPSJONIST_BRANSJER)))
     if not cities:
-        cities = random.sample(NORSKE_BYER, min(3, len(NORSKE_BYER)))
+        cities = random.sample(NORSKE_BYER, min(5, len(NORSKE_BYER)))
     all_leads = []
     for industry in industries:
         for city in cities:
