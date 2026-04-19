@@ -2146,11 +2146,7 @@ async function renderProdukter() {
   const groups = {};
   active.forEach(p => { const cat = p.category || 'tjeneste'; if (!groups[cat]) groups[cat] = []; groups[cat].push(p); });
 
-  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:28px">';
-  html += '<div class="stat-card"><div style="font-size:22px;font-weight:700;color:var(--green)">' + active.length + '</div><div style="font-size:11px;color:var(--muted)">Aktive tjenester</div></div>';
-  html += '<div class="stat-card"><div style="font-size:22px;font-weight:700;color:var(--text2)">' + Object.keys(groups).length + '</div><div style="font-size:11px;color:var(--muted)">Kategorier</div></div>';
-  html += '<div class="stat-card"><div style="font-size:22px;font-weight:700;color:var(--text2)">' + active.filter(p=>p.price_type==='mnd').reduce((s,p)=>s+p.price,0).toLocaleString('nb-NO') + ' kr</div><div style="font-size:11px;color:var(--muted)">MRR per kunde (maks)</div></div>';
-  html += '</div>';
+  let html = '';
 
   for (const [cat, prods] of Object.entries(groups)) {
     html += '<div style="margin-bottom:28px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:12px;display:flex;align-items:center;gap:6px"><span>' + (catIcons[cat]||'📦') + '</span> ' + (catLabels[cat]||cat) + '</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">';
