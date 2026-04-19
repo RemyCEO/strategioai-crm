@@ -2216,6 +2216,129 @@ async function deleteProduct(id, name) {
   toast('Produkt slettet'); renderProdukter();
 }
 
+// --- TILBUD ---
+
+let _tilbudProdukter = [];
+
+async function openSendTilbud(preselectedEmail) {
+  if (!_allProducts.length) _allProducts = await api('/api/products') || [];
+  const active = _allProducts.filter(p => p.is_active !== false);
+  _tilbudProdukter = [];
+
+  const contacts = await api('/api/contacts') || [];
+  const contactOpts = contacts.filter(c => c.email).map(c => '<option value="' + c.email + '">' + c.name + (c.company ? ' (' + c.company + ')' : '') + '</option>').join('');
+
+  const priceLabels = { engang:'engangspris', mnd:'/mnd', per_lead:'per lead', aar:'/år' };
+  let prodRows = '';
+  for (const p of active) {
+    const priceStr = p.price === 0 ? 'Pay-per-customer' : p.price.toLocaleString('nb-NO') + ' kr ' + (priceLabels[p.price_type]||'');
+    prodRows += '<tr data-pid="' + p.id + '"><td style="width:30px"><input type="checkbox" class="tilbud-check" data-id="' + p.id + '" onchange="updateTilbudTotal()"></td><td>' + (p.icon||'📦') + ' ' + p.name + '</td><td style="text-align:right"><input type="number" class="tilbud-price" data-id="' + p.id + '" value="' + p.price + '" style="width:90px;background:var(--surface2);border:1px solid var(--border2);border-radius:4px;padding:4px 6px;color:var(--text2);font-size:12px;text-align:right" onchange="updateTilbudTotal()"> kr</td><td style="font-size:11px;color:var(--muted)">' + (priceLabels[p.price_type]||'') + '</td></tr>';
+  }
+
+  const modal = document.getElementById('modal');
+  modal.style.maxWidth = '640px';
+  modal.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h3 style="margin:0;color:var(--text2)">Send tilbud</h3><button onclick="closeModal();document.getElementById(\'modal\').style.maxWidth=\'\'" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button></div>'
+    + '<div style="display:grid;gap:14px">'
+    + '<div><label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Til (velg kontakt eller skriv e-post)</label><div style="display:flex;gap:8px"><select id="t-contact" onchange="document.getElementById(\'t-email\').value=this.value" style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px;color:var(--text2);font-size:13px"><option value="">— Velg kontakt —</option>' + contactOpts + '</select><input id="t-email" placeholder="eller skriv e-post..." value="' + (preselectedEmail||'') + '" style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px;color:var(--text2);font-size:13px"></div></div>'
+    + '<div><label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Velg tjenester og tilpass priser</label>'
+    + '<table style="width:100%;font-size:13px;color:var(--text2)"><thead><tr style="color:var(--muted);font-size:11px;text-align:left"><th></th><th>Tjeneste</th><th style="text-align:right">Pris</th><th></th></tr></thead><tbody>' + prodRows + '</tbody></table></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border2)"><div><div style="font-size:11px;color:var(--muted)">Engangskostnad</div><div id="t-total-engang" style="font-size:18px;font-weight:700;color:var(--text2)">0 kr</div></div><div><div style="font-size:11px;color:var(--muted)">Månedlig</div><div id="t-total-mnd" style="font-size:18px;font-weight:700;color:var(--green)">0 kr/mnd</div></div></div>'
+    + '<div><label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Personlig melding (valgfritt)</label><textarea id="t-message" rows="3" placeholder="Hei! Her er et tilbud tilpasset dere..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>'
+    + '<div style="display:flex;gap:8px"><button onclick="sendTilbud()" class="btn btn-green" style="flex:1">📩 Send tilbud via Gmail</button><button onclick="previewTilbud()" class="btn btn-ghost btn-sm" style="color:var(--green);border-color:rgba(34,197,94,.3)">👁️ Forhåndsvis</button></div>'
+    + '</div>';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function updateTilbudTotal() {
+  const checks = document.querySelectorAll('.tilbud-check:checked');
+  let engang = 0, mnd = 0;
+  checks.forEach(cb => {
+    const id = cb.dataset.id;
+    const p = _allProducts.find(x => x.id === id);
+    const priceInput = document.querySelector('.tilbud-price[data-id="' + id + '"]');
+    const price = parseFloat(priceInput?.value) || 0;
+    if (p.price_type === 'mnd') mnd += price;
+    else if (p.price_type === 'aar') mnd += Math.round(price / 12);
+    else if (p.price_type !== 'per_lead') engang += price;
+  });
+  document.getElementById('t-total-engang').textContent = engang.toLocaleString('nb-NO') + ' kr';
+  document.getElementById('t-total-mnd').textContent = mnd.toLocaleString('nb-NO') + ' kr/mnd';
+}
+
+function _buildTilbudHtml() {
+  const checks = document.querySelectorAll('.tilbud-check:checked');
+  if (!checks.length) return null;
+
+  const priceLabels = { engang:'Engangspris', mnd:'Per måned', per_lead:'Per lead', aar:'Per år' };
+  let rows = '', engang = 0, mnd = 0;
+
+  checks.forEach(cb => {
+    const id = cb.dataset.id;
+    const p = _allProducts.find(x => x.id === id);
+    const priceInput = document.querySelector('.tilbud-price[data-id="' + id + '"]');
+    const price = parseFloat(priceInput?.value) || 0;
+    const priceStr = price === 0 ? 'Etter avtale' : price.toLocaleString('nb-NO') + ' kr';
+    if (p.price_type === 'mnd') mnd += price;
+    else if (p.price_type === 'aar') mnd += Math.round(price / 12);
+    else if (p.price_type !== 'per_lead') engang += price;
+
+    const features = (p.features||'').split('|').filter(Boolean).map(f => '<li style="padding:2px 0;color:#555">' + f + '</li>').join('');
+    rows += '<tr><td style="padding:12px;border-bottom:1px solid #eee"><strong>' + (p.icon||'') + ' ' + p.name + '</strong>' + (features ? '<ul style="margin:6px 0 0;padding-left:18px;font-size:12px">' + features + '</ul>' : '') + '</td><td style="padding:12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap;vertical-align:top"><strong>' + priceStr + '</strong><br><span style="font-size:11px;color:#888">' + (priceLabels[p.price_type]||'') + '</span></td></tr>';
+  });
+
+  const customMsg = (document.getElementById('t-message')?.value || '').trim();
+  const msgHtml = customMsg ? '<p style="font-size:14px;color:#333;line-height:1.6">' + customMsg.replace(/\n/g,'<br>') + '</p>' : '';
+
+  const date = new Date().toLocaleDateString('nb-NO', { day:'numeric', month:'long', year:'numeric' });
+
+  return '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333">'
+    + '<div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:30px;border-radius:12px 12px 0 0;text-align:center"><h1 style="color:#22c55e;margin:0;font-size:24px">STRATEGIO<span style="color:#fff">AI</span></h1><p style="color:#94a3b8;margin:8px 0 0;font-size:13px">Tilbud — ' + date + '</p></div>'
+    + '<div style="padding:24px;background:#fff;border:1px solid #e5e7eb;border-top:none">'
+    + msgHtml
+    + '<table style="width:100%;border-collapse:collapse;margin:16px 0"><thead><tr style="background:#f8fafc"><th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e5e7eb">Tjeneste</th><th style="padding:10px 12px;text-align:right;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e5e7eb">Pris</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0;display:flex;justify-content:space-between">'
+    + '<div><div style="font-size:11px;color:#64748b">Engangskostnad</div><div style="font-size:20px;font-weight:700;color:#0f172a">' + engang.toLocaleString('nb-NO') + ' kr</div></div>'
+    + '<div style="text-align:right"><div style="font-size:11px;color:#64748b">Månedlig</div><div style="font-size:20px;font-weight:700;color:#16a34a">' + mnd.toLocaleString('nb-NO') + ' kr/mnd</div></div></div>'
+    + '<p style="font-size:12px;color:#94a3b8;margin:16px 0 0">Tilbudet er gyldig i 14 dager. Alle priser er eks. mva.</p>'
+    + '</div>'
+    + '<div style="background:#0f172a;padding:16px;border-radius:0 0 12px 12px;text-align:center"><p style="color:#64748b;font-size:11px;margin:0">StrategioAI — Make the Winning Move | www.strategioai.com</p></div>'
+    + '</div>';
+}
+
+function previewTilbud() {
+  const html = _buildTilbudHtml();
+  if (!html) { toast('Velg minst én tjeneste', 'warn'); return; }
+  const w = window.open('', '_blank', 'width=700,height=800');
+  w.document.write('<html><head><title>Tilbud forhåndsvisning</title></head><body style="background:#f1f5f9;padding:20px">' + html + '</body></html>');
+}
+
+async function sendTilbud() {
+  const email = document.getElementById('t-email').value.trim();
+  if (!email) { toast('Fyll inn e-post', 'warn'); return; }
+  const html = _buildTilbudHtml();
+  if (!html) { toast('Velg minst én tjeneste', 'warn'); return; }
+
+  const checks = document.querySelectorAll('.tilbud-check:checked');
+  const names = [];
+  checks.forEach(cb => { const p = _allProducts.find(x => x.id === cb.dataset.id); if (p) names.push(p.name); });
+
+  const payload = {
+    to: email,
+    subject: 'Tilbud fra StrategioAI — ' + names.join(', '),
+    body: html,
+  };
+
+  const r = await fetch(API + '/api/gmail/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  const data = await r.json().catch(() => ({}));
+  if (r.ok && data.ok) {
+    closeModal();
+    document.getElementById('modal').style.maxWidth = '';
+    toast('Tilbud sendt til ' + email);
+  } else {
+    toast('Feil: ' + (data.detail || r.status), 'err');
+  }
+}
+
 // --- KEYBOARD SHORTCUTS ---
 document.addEventListener('keydown', e => {
   const tag = document.activeElement.tagName;
