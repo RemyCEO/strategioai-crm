@@ -626,7 +626,7 @@ async function render() {
   else if (currentView === 'maler') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('email')">+ Ny mal</button>`; await renderMaler(); }
   else if (currentView === 'ordrebekreftelser') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('ordrebekreftelse')">+ Ny ordrebekreftelse</button>`; await renderOrdrebekreftelser(); }
   else if (currentView === 'leadrapporter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="triggerLeadScrape()">🔍 Kjør scraping nå</button>`; await renderLeadRapporter(); }
-  else if (currentView === 'produkter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNewProduct()">+ Nytt produkt</button>`; await renderProdukter(); }
+  else if (currentView === 'produkter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openSendTilbud()">📩 Send tilbud</button> <button class="btn btn-ghost btn-sm" onclick="openNewProduct()" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Nytt produkt</button>`; await renderProdukter(); }
 }
 
 // --- DASHBOARD ---
