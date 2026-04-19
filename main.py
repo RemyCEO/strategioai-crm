@@ -465,6 +465,36 @@ def init_db():
                 created_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
             );
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                price REAL DEFAULT 0,
+                price_type TEXT DEFAULT 'engang',
+                category TEXT DEFAULT 'tjeneste',
+                icon TEXT DEFAULT '📦',
+                features TEXT,
+                is_active BOOLEAN DEFAULT true,
+                created_at TEXT DEFAULT (now() AT TIME ZONE 'utc'),
+                updated_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
+            );
+        """)
+        # Seed standardprodukter
+        cur.execute("SELECT COUNT(*) as cnt FROM products")
+        if cur.fetchone()["cnt"] == 0:
+            default_products = [
+                (str(uuid.uuid4()), "AI Resepsjonist", "AI-drevet chat, telefon og WhatsApp-agent som svarer kunder 24/7, booker møter og fanger leads automatisk.", 4990, "mnd", "ai", "🤖", "24/7 tilgjengelighet|Chat + telefon + WhatsApp|Automatisk booking|Lead-fangst|Flerspråklig|Sentiment-analyse"),
+                (str(uuid.uuid4()), "AI Resepsjonist Dashboard", "White-label kundeportal der bedriften ser samtaler, leads og statistikk i sanntid.", 1990, "mnd", "ai", "📊", "Sanntids samtalelogg|Lead-oversikt med status|Statistikk og grafer|White-label med eget logo|Webhook-integrasjon"),
+                (str(uuid.uuid4()), "Ny Nettside", "Profesjonell AI-optimalisert nettside med innebygd chatbot, SEO og høy konverteringsrate.", 14990, "engang", "nettside", "🌐", "Responsivt design|Innebygd AI-chatbot|SEO-optimalisert|Rask lastetid|CMS for innhold|SSL-sertifikat"),
+                (str(uuid.uuid4()), "Sosiale Medier", "Komplett pakke for automatisert innholdsproduksjon og publisering på sosiale medier.", 3990, "mnd", "sosiale_medier", "📱", "Auto-generert innhold|Planlagt publisering|Instagram + Facebook + LinkedIn|AI-genererte bilder|Engasjement-analyse|Månedlig rapport"),
+                (str(uuid.uuid4()), "Lead Generering", "Automatisert lead-generering med pay-per-customer modell. Null risiko — betal kun for verifiserte kunder.", 0, "per_lead", "leads", "🎯", "Google Maps scraping|Automatisk lead scoring|Personalisert outreach|Verifiserte kontakter|Pay-per-customer|CRM-integrasjon"),
+            ]
+            for p in default_products:
+                cur.execute(
+                    "INSERT INTO products (id, name, description, price, price_type, category, icon, features) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    p
+                )
 
 
 # --- Telegram ---
@@ -535,6 +565,26 @@ class EmailTemplate(BaseModel):
     body: str
     category: str = "email"
     image_filename: str = None
+
+class Product(BaseModel):
+    name: str
+    description: str = None
+    price: float = 0
+    price_type: str = "engang"
+    category: str = "tjeneste"
+    icon: str = "📦"
+    features: str = None
+    is_active: bool = True
+
+class ProductUpdate(BaseModel):
+    name: str = None
+    description: str = None
+    price: float = None
+    price_type: str = None
+    category: str = None
+    icon: str = None
+    features: str = None
+    is_active: bool = None
 
 
 # --- Frontend ---
@@ -1766,6 +1816,49 @@ def get_lead_stats():
         cur.execute("SELECT category, COUNT(*) AS n FROM contacts WHERE source='google_places' GROUP BY category")
         cats = {r["category"]: r["n"] for r in cur.fetchall()}
     return {"total": total, "today": today, "this_week": week, "by_category": cats}
+
+
+# --- Produkter/Tjenester ---
+
+@app.get("/api/products")
+def get_products():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM products ORDER BY created_at")
+        return cur.fetchall()
+
+@app.post("/api/products")
+def create_product(p: Product):
+    pid = str(uuid.uuid4())
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO products (id, name, description, price, price_type, category, icon, features, is_active) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (pid, p.name, p.description, p.price, p.price_type, p.category, p.icon, p.features, p.is_active)
+        )
+    return {"id": pid}
+
+@app.put("/api/products/{pid}")
+def update_product(pid: str, p: ProductUpdate):
+    fields, vals = [], []
+    for k, v in p.model_dump(exclude_none=True).items():
+        fields.append(f"{k} = %s")
+        vals.append(v)
+    if not fields:
+        raise HTTPException(400, "Ingen felter å oppdatere")
+    fields.append("updated_at = now() AT TIME ZONE 'utc'")
+    vals.append(pid)
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE products SET {', '.join(fields)} WHERE id = %s", vals)
+    return {"ok": True}
+
+@app.delete("/api/products/{pid}")
+def delete_product(pid: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM products WHERE id = %s", (pid,))
+    return {"ok": True}
 
 
 # --- Init ---

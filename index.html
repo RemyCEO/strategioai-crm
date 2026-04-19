@@ -326,6 +326,8 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
     <div class="nav-item" id="nav-gmail" onclick="showView('gmail')"><span class="icon">📧</span> Gmail <span id="gmail-dot" style="display:none;width:7px;height:7px;border-radius:50%;margin-left:auto"></span></div>
     <div class="nav-label">Lead Scraping</div>
     <div class="nav-item" onclick="showView('leadrapporter')"><span class="icon">🔍</span> Lead-rapporter</div>
+    <div class="nav-label">Produkter</div>
+    <div class="nav-item" onclick="showView('produkter')"><span class="icon">📦</span> Tjenester</div>
     <div class="nav-label">Innhold</div>
     <div class="nav-item" onclick="showView('maler')"><span class="icon">📝</span> E-postmaler</div>
     <div class="nav-item" onclick="showView('ordrebekreftelser')"><span class="icon">📋</span> Ordrebekreftelser</div>
@@ -433,6 +435,9 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
           <option value="pakke1">Pakke 1 — Starter (4 500/mnd)</option>
           <option value="pakke2">Pakke 2 — Vekst (8 500/mnd)</option>
           <option value="pakke3">Pakke 3 — Full video (14–18 000/mnd)</option>
+          <option value="ai-resepsjonist">AI Resepsjonist Demo (lead-gen)</option>
+          <option value="ai-nettside">AI-Powered Nettside</option>
+          <option value="ai-leadgen">AI Lead Generation</option>
           <option value="engang">Éngangsprodukt</option>
         </select>
       </div>
@@ -596,9 +601,9 @@ function showView(view) {
   currentView = view;
   location.hash = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','leadrapporter','maler','ordrebekreftelser'].indexOf(view);
+  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','leadrapporter','produkter','maler','ordrebekreftelser'].indexOf(view);
   if (navIdx >= 0) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', leadrapporter:'Lead-rapporter', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
+  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', leadrapporter:'Lead-rapporter', produkter:'Produkter & Tjenester', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
   document.getElementById('view-title').textContent = titles[view] || view;
   closePanel();
   render();
@@ -621,6 +626,7 @@ async function render() {
   else if (currentView === 'maler') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('email')">+ Ny mal</button>`; await renderMaler(); }
   else if (currentView === 'ordrebekreftelser') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('ordrebekreftelse')">+ Ny ordrebekreftelse</button>`; await renderOrdrebekreftelser(); }
   else if (currentView === 'leadrapporter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="triggerLeadScrape()">🔍 Kjør scraping nå</button>`; await renderLeadRapporter(); }
+  else if (currentView === 'produkter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNewProduct()">+ Nytt produkt</button>`; await renderProdukter(); }
 }
 
 // --- DASHBOARD ---
@@ -2125,6 +2131,91 @@ async function quickFollowup(id, current) {
   }
 }
 
+// --- PRODUKTER / TJENESTER ---
+
+let _allProducts = [];
+
+async function renderProdukter() {
+  _allProducts = await api('/api/products') || [];
+  const content = document.getElementById('content');
+  const catIcons = { ai:'🤖', nettside:'🌐', sosiale_medier:'📱', leads:'🎯', tjeneste:'📦' };
+  const catLabels = { ai:'AI-tjenester', nettside:'Nettsider', sosiale_medier:'Sosiale Medier', leads:'Lead Generering', tjeneste:'Annet' };
+  const priceLabels = { engang:'', mnd:'/mnd', per_lead:' per lead', aar:'/år' };
+  const active = _allProducts.filter(p => p.is_active !== false);
+  const inactive = _allProducts.filter(p => p.is_active === false);
+  const groups = {};
+  active.forEach(p => { const cat = p.category || 'tjeneste'; if (!groups[cat]) groups[cat] = []; groups[cat].push(p); });
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:28px">';
+  html += '<div class="stat-card"><div style="font-size:22px;font-weight:700;color:var(--green)">' + active.length + '</div><div style="font-size:11px;color:var(--muted)">Aktive tjenester</div></div>';
+  html += '<div class="stat-card"><div style="font-size:22px;font-weight:700;color:var(--text2)">' + Object.keys(groups).length + '</div><div style="font-size:11px;color:var(--muted)">Kategorier</div></div>';
+  html += '<div class="stat-card"><div style="font-size:22px;font-weight:700;color:var(--text2)">' + active.filter(p=>p.price_type==='mnd').reduce((s,p)=>s+p.price,0).toLocaleString('nb-NO') + ' kr</div><div style="font-size:11px;color:var(--muted)">MRR per kunde (maks)</div></div>';
+  html += '</div>';
+
+  for (const [cat, prods] of Object.entries(groups)) {
+    html += '<div style="margin-bottom:28px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:12px;display:flex;align-items:center;gap:6px"><span>' + (catIcons[cat]||'📦') + '</span> ' + (catLabels[cat]||cat) + '</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">';
+    for (const p of prods) {
+      const features = (p.features||'').split('|').filter(Boolean);
+      const priceStr = p.price === 0 ? 'Pay-per-customer' : p.price.toLocaleString('nb-NO') + ' kr' + (priceLabels[p.price_type]||'');
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;transition:.2s" onmouseover="this.style.borderColor=\'rgba(34,197,94,.3)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="display:flex;align-items:center;gap:10px"><span style="font-size:28px">' + (p.icon||'📦') + '</span><div><div style="font-weight:600;color:var(--text2);font-size:15px">' + p.name + '</div><div style="font-size:18px;font-weight:700;color:var(--green);margin-top:2px">' + priceStr + '</div></div></div>';
+      html += '<div style="display:flex;gap:4px"><button onclick="editProduct(\'' + p.id + '\')" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--muted);cursor:pointer" title="Rediger">✏️</button><button onclick="deleteProduct(\'' + p.id + '\',\'' + p.name.replace(/'/g,"\\'") + '\')" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--muted);cursor:pointer" title="Slett">🗑️</button></div></div>';
+      html += '<p style="font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 12px">' + (p.description||'') + '</p>';
+      if (features.length) { html += '<div style="display:flex;flex-wrap:wrap;gap:5px">' + features.map(f => '<span style="font-size:10px;background:rgba(34,197,94,.08);color:var(--green);padding:3px 8px;border-radius:20px;border:1px solid rgba(34,197,94,.15)">✓ ' + f + '</span>').join('') + '</div>'; }
+      html += '</div>';
+    }
+    html += '</div></div>';
+  }
+
+  if (inactive.length) {
+    html += '<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:10px">Inaktive tjenester</div>';
+    for (const p of inactive) {
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;opacity:.5"><span>' + (p.icon||'📦') + ' ' + p.name + '</span><div style="display:flex;gap:4px"><button onclick="toggleProduct(\'' + p.id + '\',true)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--green);cursor:pointer">Aktiver</button><button onclick="deleteProduct(\'' + p.id + '\',\'' + p.name.replace(/'/g,"\\'") + '\')" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--muted);cursor:pointer">🗑️</button></div></div>';
+    }
+    html += '</div>';
+  }
+  content.innerHTML = html;
+}
+
+function openNewProduct() {
+  const modal = document.getElementById('modal');
+  modal.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h3 style="margin:0;color:var(--text2)">Nytt produkt / tjeneste</h3><button onclick="closeModal()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button></div><div style="display:grid;gap:12px"><div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center"><label style="font-size:12px;color:var(--muted)">Ikon</label><input id="p-icon" value="📦" style="width:50px;text-align:center;font-size:20px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:6px;color:var(--text2)"></div><input id="p-name" placeholder="Navn (f.eks. AI Resepsjonist)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><textarea id="p-desc" placeholder="Beskrivelse..." rows="3" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px;resize:vertical"></textarea><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><input id="p-price" type="number" placeholder="Pris (kr)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><select id="p-pricetype" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><option value="engang">Engangspris</option><option value="mnd">Per måned</option><option value="aar">Per år</option><option value="per_lead">Per lead</option></select></div><select id="p-cat" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><option value="ai">🤖 AI-tjenester</option><option value="nettside">🌐 Nettsider</option><option value="sosiale_medier">📱 Sosiale Medier</option><option value="leads">🎯 Lead Generering</option><option value="tjeneste">📦 Annet</option></select><input id="p-features" placeholder="Features (skill med |)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><button onclick="saveNewProduct()" class="btn btn-green" style="margin-top:4px">Lagre</button></div>';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function saveNewProduct() {
+  const body = { name: document.getElementById('p-name').value, description: document.getElementById('p-desc').value, price: parseFloat(document.getElementById('p-price').value) || 0, price_type: document.getElementById('p-pricetype').value, category: document.getElementById('p-cat').value, icon: document.getElementById('p-icon').value || '📦', features: document.getElementById('p-features').value };
+  if (!body.name) { toast('Fyll inn navn'); return; }
+  await api('/api/products', 'POST', body);
+  closeModal(); toast('Produkt opprettet'); renderProdukter();
+}
+
+function editProduct(id) {
+  const p = _allProducts.find(x => x.id === id);
+  if (!p) return;
+  const modal = document.getElementById('modal');
+  const e = s => (s||'').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  modal.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h3 style="margin:0;color:var(--text2)">Rediger: ' + p.name + '</h3><button onclick="closeModal()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button></div><div style="display:grid;gap:12px"><div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center"><label style="font-size:12px;color:var(--muted)">Ikon</label><input id="p-icon" value="' + (p.icon||'📦') + '" style="width:50px;text-align:center;font-size:20px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:6px;color:var(--text2)"></div><input id="p-name" value="' + e(p.name) + '" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><textarea id="p-desc" rows="3" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px;resize:vertical">' + (p.description||'') + '</textarea><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><input id="p-price" type="number" value="' + p.price + '" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><select id="p-pricetype" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><option value="engang"' + (p.price_type==='engang'?' selected':'') + '>Engangspris</option><option value="mnd"' + (p.price_type==='mnd'?' selected':'') + '>Per måned</option><option value="aar"' + (p.price_type==='aar'?' selected':'') + '>Per år</option><option value="per_lead"' + (p.price_type==='per_lead'?' selected':'') + '>Per lead</option></select></div><select id="p-cat" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><option value="ai"' + (p.category==='ai'?' selected':'') + '>🤖 AI-tjenester</option><option value="nettside"' + (p.category==='nettside'?' selected':'') + '>🌐 Nettsider</option><option value="sosiale_medier"' + (p.category==='sosiale_medier'?' selected':'') + '>📱 Sosiale Medier</option><option value="leads"' + (p.category==='leads'?' selected':'') + '>🎯 Lead Generering</option><option value="tjeneste"' + (p.category==='tjeneste'?' selected':'') + '>📦 Annet</option></select><input id="p-features" value="' + e(p.features||'') + '" placeholder="Features (skill med |)" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;color:var(--text2);font-size:13px"><div style="display:flex;gap:8px;margin-top:4px"><button onclick="saveEditProduct(\'' + p.id + '\')" class="btn btn-green" style="flex:1">Lagre endringer</button><button onclick="toggleProduct(\'' + p.id + '\',' + !p.is_active + ')" class="btn btn-ghost btn-sm" style="color:' + (p.is_active?'#ef4444':'var(--green)') + ';border-color:' + (p.is_active?'rgba(239,68,68,.3)':'rgba(34,197,94,.3)') + '">' + (p.is_active?'Deaktiver':'Aktiver') + '</button></div></div>';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function saveEditProduct(id) {
+  const body = { name: document.getElementById('p-name').value, description: document.getElementById('p-desc').value, price: parseFloat(document.getElementById('p-price').value) || 0, price_type: document.getElementById('p-pricetype').value, category: document.getElementById('p-cat').value, icon: document.getElementById('p-icon').value || '📦', features: document.getElementById('p-features').value };
+  await api('/api/products/' + id, 'PUT', body);
+  closeModal(); toast('Produkt oppdatert'); renderProdukter();
+}
+
+async function toggleProduct(id, active) {
+  await api('/api/products/' + id, 'PUT', { is_active: active });
+  closeModal(); toast(active ? 'Produkt aktivert' : 'Produkt deaktivert'); renderProdukter();
+}
+
+async function deleteProduct(id, name) {
+  if (!confirm('Slette "' + name + '"?')) return;
+  await api('/api/products/' + id, 'DELETE');
+  toast('Produkt slettet'); renderProdukter();
+}
+
 // --- KEYBOARD SHORTCUTS ---
 document.addEventListener('keydown', e => {
   const tag = document.activeElement.tagName;
@@ -2197,6 +2288,118 @@ async function boot() {
   } catch(e) {}
   render();
 }
+// --- PRODUKTER & TJENESTER ---
+async function renderProdukter() {
+  const content = document.getElementById('content');
+  const products = [
+    {
+      id: 'ai-resepsjonist',
+      name: 'AI Resepsjonist Demo',
+      icon: '🤖',
+      status: 'Aktiv',
+      statusColor: '#22c55e',
+      type: 'Lead-gen verktøy',
+      price: 'Gratis demo → salg',
+      url: 'https://lovable.dev/projects/113245dc-c5aa-4c97-a3b2-0273e0b7fb1d',
+      description: 'Bedriftseiere tester sin egen AI-resepsjonist på 30 sekunder. Fyller inn bedriftsnavn, bransje og by — snakker med en live AI-chatbot tilpasset deres bedrift. Fanger kontaktinfo som lead automatisk. Null kostnad per demo — bruker Lovable AI Gateway.',
+      features: ['Live AI-chat tilpasset bedriften', 'Automatisk lead-fangst til Supabase', 'Calendly-booking CTA', 'Mobilvennlig', 'Ingen API-kostnad'],
+      stack: 'Lovable + Supabase + AI Gateway'
+    },
+    {
+      id: 'pakke1',
+      name: 'Pakke 1 — Starter',
+      icon: '📦',
+      status: 'Aktiv',
+      statusColor: '#22c55e',
+      type: 'Abonnement',
+      price: '4 500 kr/mnd',
+      description: 'AI-resepsjonist for chat på nettside. Svarer kunder 24/7, booker møter, svarer på vanlige spørsmål. Perfekt for små bedrifter som vil fange flere leads.',
+      features: ['Chat-widget på nettside', 'Automatisk møtebooking', '24/7 tilgjengelighet', 'Norsk språk'],
+      stack: 'n8n + OpenAI/Claude'
+    },
+    {
+      id: 'pakke2',
+      name: 'Pakke 2 — Vekst',
+      icon: '🚀',
+      status: 'Aktiv',
+      statusColor: '#22c55e',
+      type: 'Abonnement',
+      price: '8 500 kr/mnd',
+      description: 'Alt i Starter + WhatsApp-integrasjon, SMS-bekreftelser, og AI-drevet lead scoring. For bedrifter som vil skalere salget.',
+      features: ['Alt i Starter', 'WhatsApp-integrasjon', 'SMS-bekreftelser', 'AI lead scoring', 'E-post-automatisering'],
+      stack: 'n8n + OpenAI/Claude + Twilio'
+    },
+    {
+      id: 'pakke3',
+      name: 'Pakke 3 — Full Video',
+      icon: '🎬',
+      status: 'Aktiv',
+      statusColor: '#22c55e',
+      type: 'Abonnement',
+      price: '14 000–18 000 kr/mnd',
+      description: 'Alt i Vekst + AI-telefonresepsjonist (voice), video-innhold, og full automatisering av kundeoppfølging.',
+      features: ['Alt i Vekst', 'AI-telefonresepsjonist (Retell AI)', 'Video-innholdsproduksjon', 'Full workflow-automatisering', 'Dedikert support'],
+      stack: 'n8n + Retell AI + Claude + Twilio'
+    },
+    {
+      id: 'ai-nettside',
+      name: 'AI-Powered Nettside',
+      icon: '🌐',
+      status: 'Aktiv',
+      statusColor: '#22c55e',
+      type: 'Engangsprosjekt + vedlikehold',
+      price: 'Fra 15 000 kr',
+      description: 'Skreddersydd nettside med innebygd AI-chatbot, SEO-optimalisering, og smart innholdspersonalisering. Høyere konverteringsrate enn vanlige nettsider.',
+      features: ['Innebygd AI-chatbot', 'Auto SEO-optimalisering', 'Responsivt design', 'CMS for kunden'],
+      stack: 'Lovable/Next.js + Supabase'
+    },
+    {
+      id: 'ai-leadgen',
+      name: 'AI Lead Generation',
+      icon: '🎯',
+      status: 'Aktiv',
+      statusColor: '#22c55e',
+      type: 'Pay-per-customer',
+      price: 'Betal kun for kunder',
+      description: 'Automatisert lead-generering med AI-drevet prospecting, personalisert outreach, og lead scoring. Null fastkostand — betaler kun for verifiserte kunder.',
+      features: ['Automatisert lead scoring', 'Predictive prospect targeting', 'Personalisert outreach', 'Null risiko — pay per customer'],
+      stack: 'Python + n8n + Claude'
+    }
+  ];
+
+  content.innerHTML = `
+    <div style="display:grid;gap:16px">
+      ${products.map(p => `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;transition:border-color .2s" onmouseover="this.style.borderColor='#22c55e'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:24px">${p.icon}</span>
+              <div>
+                <div style="font-weight:700;font-size:15px;color:var(--text)">${p.name}</div>
+                <div style="font-size:12px;color:var(--muted)">${p.type}</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="background:${p.statusColor}22;color:${p.statusColor};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">${p.status}</span>
+              <span style="font-weight:700;color:#22c55e;font-size:14px">${p.price}</span>
+            </div>
+          </div>
+          <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:12px">${p.description}</p>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${p.url ? '12px' : '0'}">
+            ${p.features.map(f => `<span style="background:var(--surface2);border:1px solid var(--border);padding:3px 8px;border-radius:4px;font-size:11px;color:var(--text2)">${f}</span>`).join('')}
+          </div>
+          ${p.url ? `<a href="${p.url}" target="_blank" style="color:#22c55e;font-size:12px;text-decoration:none">🔗 Åpne i Lovable →</a>` : ''}
+          <div style="margin-top:8px;font-size:11px;color:var(--muted)">Stack: ${p.stack}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function openNewProduct() {
+  alert('Rediger produkter direkte i koden (index.html → renderProdukter). Kontakt Claude for hjelp.');
+}
+
 // --- LEAD RAPPORTER ---
 async function renderLeadRapporter() {
   const content = document.getElementById('content');
