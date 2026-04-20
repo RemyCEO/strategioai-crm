@@ -551,7 +551,7 @@ def _daily_outreach():
 
                     email_html = f"""<html><head><meta charset="utf-8"></head><body><div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">
 <p>Hei du,</p>
-<p>Jeg la merke til at {company} ikke har nettside ennå.</p>
+<p>Vi fant ikke nettsiden til {company} online.</p>
 <p>Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside fra kun <strong>890,- /mnd</strong> — med <strong>EGET ADMIN-PANEL</strong> som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.</p>
 <p>Vi integrerer sosiale medier, legger til bookingsystem på nettsiden, og kan hjelpe med markedsføring om du ønsker det.</p>
 <p>Svar her så sender jeg et forslag.</p>
