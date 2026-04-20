@@ -506,7 +506,7 @@ def _daily_outreach():
 
 Jeg la merke til at {company} ikke har nettside ennå.
 
-Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside til en god pris — med EGET ADMIN-PANEL som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.
+Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside fra kun 890,- /mnd — med EGET ADMIN-PANEL som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.
 
 I tillegg kan vi hjelpe deg med markedsføring, fange leads og konvertere besøkere til kjøpere. La oss ta en prat på det!
 
