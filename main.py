@@ -327,9 +327,9 @@ def _daily_health_and_report():
                     cur = conn.cursor()
                     cur.execute("SELECT COUNT(*) AS n FROM contacts")
                     total = cur.fetchone()["n"]
-                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '24 hours'")
+                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at::timestamptz >= now() - interval '24 hours'")
                     new_24h = cur.fetchone()["n"]
-                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
+                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at::timestamptz >= now() - interval '7 days'")
                     new_week = cur.fetchone()["n"]
                     cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE followup_date IS NOT NULL AND followup_date::text <= %s AND status NOT IN ('vunnet','tapt')", (today,))
                     overdue = cur.fetchone()["n"]
@@ -719,7 +719,7 @@ def stats():
             contacts = cur.fetchall()
             cur.execute("SELECT status, value, type, recurring_amount FROM deals")
             deals = cur.fetchall()
-            cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
+            cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at::timestamptz >= now() - interval '7 days'")
             new_this_week = cur.fetchone()["n"]
     except Exception as e:
         print(f"[STATS] DB error: {e}")
@@ -1794,7 +1794,7 @@ async def send_daily_report():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) AS n FROM contacts")
         total = cur.fetchone()["n"]
-        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at::timestamptz >= now() - interval '7 days'")
         new_week = cur.fetchone()["n"]
         cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE followup_date <= %s AND status NOT IN ('vunnet','tapt')", (today,))
         overdue = cur.fetchone()["n"]
@@ -1839,7 +1839,7 @@ async def trigger_health_check():
             cur = conn.cursor()
             cur.execute("SELECT COUNT(*) AS n FROM contacts")
             total = cur.fetchone()["n"]
-            cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '24 hours'")
+            cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at::timestamptz >= now() - interval '24 hours'")
             new_24h = cur.fetchone()["n"]
             cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE status='kunde'")
             customers = cur.fetchone()["n"]
@@ -1957,9 +1957,9 @@ def get_lead_stats():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places'")
         total = cur.fetchone()["n"]
-        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places' AND created_at >= now() - interval '24 hours'")
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places' AND created_at::timestamptz >= now() - interval '24 hours'")
         today = cur.fetchone()["n"]
-        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places' AND created_at >= now() - interval '7 days'")
+        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE source='google_places' AND created_at::timestamptz >= now() - interval '7 days'")
         week = cur.fetchone()["n"]
         cur.execute("SELECT category, COUNT(*) AS n FROM contacts WHERE source='google_places' GROUP BY category")
         cats = {r["category"]: r["n"] for r in cur.fetchall()}
