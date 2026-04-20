@@ -812,7 +812,7 @@ def bulk_category(data: BulkCategoryUpdate):
 
 @app.get("/api/contacts")
 def get_contacts(search: str = None, status: str = None, category: str = None,
-                 page: int = 0, limit: int = 50, minimal: str = None):
+                 page: int = 0, limit: int = 50, minimal: str = None, has_email: str = None):
     with get_conn() as conn:
         cur = conn.cursor()
         wheres, vals = [], []
@@ -820,6 +820,8 @@ def get_contacts(search: str = None, status: str = None, category: str = None,
             wheres.append("status=%s"); vals.append(status)
         if category:
             wheres.append("category=%s"); vals.append(category)
+        if has_email:
+            wheres.append("email IS NOT NULL AND email != ''")
         if search:
             wheres.append("(LOWER(name) LIKE %s OR LOWER(company) LIKE %s OR LOWER(email) LIKE %s)")
             s = f"%{search.lower()}%"
