@@ -508,7 +508,7 @@ Jeg la merke til at {company} ikke har nettside ennå.
 
 Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside fra kun 890,- /mnd — med EGET ADMIN-PANEL som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.
 
-I tillegg kan vi hjelpe deg med markedsføring, fange leads og konvertere besøkere til kjøpere. La oss ta en prat på det!
+Vi integrerer sosiale medier, legger til bookingsystem på nettsiden, og kan hjelpe med markedsføring om du ønsker det.
 
 Svar her så sender jeg et forslag.
 
