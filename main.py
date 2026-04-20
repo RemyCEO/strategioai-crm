@@ -807,7 +807,8 @@ def bulk_category(data: BulkCategoryUpdate):
 # --- Contacts ---
 
 @app.get("/api/contacts")
-def get_contacts(search: str = None, status: str = None, category: str = None):
+def get_contacts(search: str = None, status: str = None, category: str = None,
+                 page: int = 0, limit: int = 50, minimal: str = None):
     with get_conn() as conn:
         cur = conn.cursor()
         wheres, vals = [], []
@@ -815,20 +816,30 @@ def get_contacts(search: str = None, status: str = None, category: str = None):
             wheres.append("status=%s"); vals.append(status)
         if category:
             wheres.append("category=%s"); vals.append(category)
-        sql = "SELECT * FROM contacts"
+        if search:
+            wheres.append("(LOWER(name) LIKE %s OR LOWER(company) LIKE %s OR LOWER(email) LIKE %s)")
+            s = f"%{search.lower()}%"
+            vals.extend([s, s, s])
+        # Minimal mode: bare id, name, company, email (for dropdowns)
+        if minimal:
+            cols = "id, name, company, email"
+        else:
+            cols = "*"
+        sql = f"SELECT {cols} FROM contacts"
         if wheres:
             sql += " WHERE " + " AND ".join(wheres)
-        sql += " ORDER BY created_at DESC"
+        # Hent total count
+        count_sql = "SELECT COUNT(*) FROM contacts"
+        if wheres:
+            count_sql += " WHERE " + " AND ".join(wheres)
+        cur.execute(count_sql, vals)
+        total = cur.fetchone()[0]
+        sql += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+        vals.extend([limit, page * limit])
         cur.execute(sql, vals)
         data = cur.fetchall()
     result = [dict(r) for r in data]
-    if search:
-        s = search.lower()
-        result = [c for c in result if
-                  s in (c.get("name") or "").lower() or
-                  s in (c.get("company") or "").lower() or
-                  s in (c.get("email") or "").lower()]
-    return result
+    return {"items": result, "total": total, "page": page, "limit": limit}
 
 @app.post("/api/contacts")
 def create_contact(c: Contact):

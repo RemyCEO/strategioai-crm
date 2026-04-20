@@ -732,28 +732,30 @@ const CATEGORIES = {
 };
 
 let _allContacts = [];
+let _contactsTotal = 0;
 let _selectedContacts = new Set();
 let _categoryStats = {};
 
 async function renderContacts(resetPage = false) {
   if (resetPage) { contactPage = 0; _selectedContacts.clear(); _renderBulkBar(); }
   let url = '/api/contacts';
-  const params = [];
+  const params = [`page=${contactPage}`, `limit=${PAGE_SIZE}`];
   if (contactFilter) params.push(`status=${contactFilter}`);
   if (contactCategoryFilter) params.push(`category=${encodeURIComponent(contactCategoryFilter)}`);
   if (contactSearch) params.push(`search=${encodeURIComponent(contactSearch)}`);
-  if (params.length) url += '?' + params.join('&');
-  const [contacts, stats] = await Promise.all([api(url), api('/api/stats')]);
-  _allContacts = contacts || [];
+  url += '?' + params.join('&');
+  const [res, stats] = await Promise.all([api(url), api('/api/stats')]);
+  _allContacts = res?.items || [];
+  _contactsTotal = res?.total || 0;
   _categoryStats = stats?.by_category || {};
   _renderContactsPage();
 }
 
 function _renderContactsPage() {
-  const total = _allContacts.length;
+  const total = _contactsTotal;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   contactPage = Math.min(contactPage, totalPages - 1);
-  const page = _allContacts.slice(contactPage * PAGE_SIZE, (contactPage + 1) * PAGE_SIZE);
+  const page = _allContacts; // allerede paginert fra server
   const start = contactPage * PAGE_SIZE + 1;
   const end = Math.min((contactPage + 1) * PAGE_SIZE, total);
 
@@ -761,11 +763,11 @@ function _renderContactsPage() {
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--border);font-size:13px">
       <span style="color:var(--muted)">${start}–${end} av ${total} leads</span>
       <div style="display:flex;gap:6px;align-items:center">
-        <button class="btn btn-ghost btn-sm" onclick="contactPage=0;_renderContactsPage()" ${contactPage===0?'disabled':''}>«</button>
-        <button class="btn btn-ghost btn-sm" onclick="contactPage--;_renderContactsPage()" ${contactPage===0?'disabled':''}>‹ Forrige</button>
+        <button class="btn btn-ghost btn-sm" onclick="contactPage=0;renderContacts()" ${contactPage===0?'disabled':''}>«</button>
+        <button class="btn btn-ghost btn-sm" onclick="contactPage--;renderContacts()" ${contactPage===0?'disabled':''}>‹ Forrige</button>
         <span style="padding:4px 10px;background:var(--surface2);border-radius:6px;font-weight:600;color:var(--green)">${contactPage+1} / ${totalPages}</span>
-        <button class="btn btn-ghost btn-sm" onclick="contactPage++;_renderContactsPage()" ${contactPage>=totalPages-1?'disabled':''}>Neste ›</button>
-        <button class="btn btn-ghost btn-sm" onclick="contactPage=${totalPages-1};_renderContactsPage()" ${contactPage>=totalPages-1?'disabled':''}>»</button>
+        <button class="btn btn-ghost btn-sm" onclick="contactPage++;renderContacts()" ${contactPage>=totalPages-1?'disabled':''}>Neste ›</button>
+        <button class="btn btn-ghost btn-sm" onclick="contactPage=${totalPages-1};renderContacts()" ${contactPage>=totalPages-1?'disabled':''}>»</button>
       </div>
     </div>`;
 
@@ -887,13 +889,13 @@ async function renderDeals() {
 
 // --- PIPELINE ---
 async function renderPipeline() {
-  const contacts = await api('/api/contacts');
   const stages = ['ny','kontaktet','møte','tilbud','kunde','tapt'];
   const labels = { ny:'Ny', kontaktet:'Kontaktet', møte:'Møte booket', tilbud:'Tilbud sendt', kunde:'Kunde', tapt:'Tapt' };
   const colors = { ny:'#94a3b8', kontaktet:'#818cf8', møte:'#f59e0b', tilbud:'#60a5fa', kunde:'#22c55e', tapt:'#ef4444' };
 
+  const results = await Promise.all(stages.map(s => api(`/api/contacts?status=${s}&limit=50`)));
   const grouped = {};
-  stages.forEach(s => grouped[s] = contacts.filter(c => c.status === s));
+  stages.forEach((s, i) => grouped[s] = results[i]?.items || []);
 
   document.getElementById('content').innerHTML = `
     <div class="pipeline">
@@ -2221,7 +2223,8 @@ async function openSendTilbud(preselectedEmail) {
   const active = _allProducts.filter(p => p.is_active !== false);
   _tilbudProdukter = [];
 
-  const contacts = await api('/api/contacts') || [];
+  const contactRes = await api('/api/contacts?minimal=1&limit=500') || {};
+  const contacts = contactRes.items || [];
   const contactOpts = contacts.filter(c => c.email).map(c => '<option value="' + c.email + '">' + c.name + (c.company ? ' (' + c.company + ')' : '') + '</option>').join('');
 
   const priceLabels = { engang:'engangspris', mnd:'/mnd', per_lead:'per lead', aar:'/år' };
