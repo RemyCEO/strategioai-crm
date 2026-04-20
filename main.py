@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -435,6 +435,10 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
+TWILIO_TWIML_APP_SID = os.getenv("TWILIO_TWIML_APP_SID", "")
 DATABASE_URL = os.getenv("DATABASE_URL")
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
@@ -833,7 +837,7 @@ def get_contacts(search: str = None, status: str = None, category: str = None,
         if wheres:
             count_sql += " WHERE " + " AND ".join(wheres)
         cur.execute(count_sql, vals)
-        total = cur.fetchone()[0]
+        total = cur.fetchone()["count"]
         sql += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
         vals.extend([limit, page * limit])
         cur.execute(sql, vals)
@@ -2018,6 +2022,76 @@ def delete_product(pid: str):
         cur = conn.cursor()
         cur.execute("DELETE FROM products WHERE id = %s", (pid,))
     return {"ok": True}
+
+
+# --- Twilio Browser Calling ---
+
+@app.get("/api/twilio/token")
+def twilio_token():
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+        raise HTTPException(400, "Twilio ikke konfigurert")
+    from twilio.jwt.access_token import AccessToken
+    from twilio.jwt.access_token.grants import VoiceGrant
+    token = AccessToken(
+        TWILIO_ACCOUNT_SID,
+        TWILIO_AUTH_TOKEN,  # API Key SID — bruker main auth token som fallback
+        TWILIO_AUTH_TOKEN,  # API Key Secret
+        identity="strategio-crm",
+        ttl=3600,
+    )
+    voice_grant = VoiceGrant(
+        outgoing_application_sid=TWILIO_TWIML_APP_SID,
+        incoming_allow=False,
+    )
+    token.add_grant(voice_grant)
+    return {"token": token.to_jwt()}
+
+@app.post("/api/twilio/voice")
+async def twilio_voice(request: Request):
+    """TwiML webhook — Twilio kaller denne når et outbound call starter."""
+    form = await request.form()
+    to_number = form.get("To", "")
+    from twilio.twiml.voice_response import VoiceResponse
+    resp = VoiceResponse()
+    if to_number:
+        dial = resp.dial(caller_id=TWILIO_PHONE_NUMBER)
+        dial.number(to_number)
+    else:
+        resp.say("Ingen nummer oppgitt.", language="nb-NO")
+    return Response(content=str(resp), media_type="application/xml")
+
+@app.post("/api/twilio/call")
+def twilio_call_rest(data: dict):
+    """REST-basert utgående samtale (alternativ til browser SDK)."""
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+        raise HTTPException(400, "Twilio ikke konfigurert")
+    to_number = data.get("to")
+    contact_id = data.get("contact_id")
+    if not to_number:
+        raise HTTPException(400, "Mangler telefonnummer")
+    from twilio.rest import Client
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    call = client.calls.create(
+        to=to_number,
+        from_=TWILIO_PHONE_NUMBER,
+        url=f"{os.getenv('RAILWAY_PUBLIC_DOMAIN', 'https://crm.strategio.site')}/api/twilio/voice",
+    )
+    # Logg samtale som aktivitet
+    if contact_id:
+        now = datetime.now(timezone.utc).isoformat()
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO activities (id, contact_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s)",
+                (str(uuid.uuid4()), contact_id, "call", f"Utgående samtale til {to_number} (Twilio SID: {call.sid})", now)
+            )
+    return {"ok": True, "call_sid": call.sid}
+
+@app.get("/api/twilio/status")
+def twilio_status():
+    """Sjekk om Twilio er konfigurert."""
+    configured = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER)
+    return {"configured": configured, "phone_number": TWILIO_PHONE_NUMBER if configured else None}
 
 
 # --- Init ---
