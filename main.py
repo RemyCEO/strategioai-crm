@@ -606,14 +606,18 @@ def health():
 @app.get("/api/stats")
 def stats():
     today = datetime.now(timezone.utc).date().isoformat()
-    with get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT status, category, followup_date FROM contacts")
-        contacts = cur.fetchall()
-        cur.execute("SELECT status, value, type, recurring_amount FROM deals")
-        deals = cur.fetchall()
-        cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
-        new_this_week = cur.fetchone()["n"]
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT status, category, followup_date FROM contacts")
+            contacts = cur.fetchall()
+            cur.execute("SELECT status, value, type, recurring_amount FROM deals")
+            deals = cur.fetchall()
+            cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
+            new_this_week = cur.fetchone()["n"]
+    except Exception as e:
+        print(f"[STATS] DB error: {e}")
+        raise HTTPException(500, f"Database error: {e}")
 
     pipeline_value = sum(d["value"] or 0 for d in deals if d["status"] not in ["vunnet", "tapt"])
     won_value = sum(d["value"] or 0 for d in deals if d["status"] == "vunnet")
@@ -626,8 +630,8 @@ def stats():
             for s in subs.auto_paging_iter():
                 amount, interval, _, _pe = _stripe_sub_info(s)
                 stripe_mrr += amount / 12 if interval == "year" else amount
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[STATS] Stripe MRR error (ignored): {e}")
     mrr = stripe_mrr if stripe_mrr > 0 else sum(
         d["recurring_amount"] or 0 for d in deals if d.get("type") == "subscription" and d["status"] == "vunnet"
     )
@@ -642,8 +646,10 @@ def stats():
         if cat:
             category_count[cat] = category_count.get(cat, 0) + 1
         fd = c.get("followup_date")
-        if fd and fd <= today and s not in ("vunnet", "tapt"):
-            overdue_followups += 1
+        if fd:
+            fd_str = str(fd)[:10] if not isinstance(fd, str) else fd
+            if fd_str <= today and s not in ("vunnet", "tapt"):
+                overdue_followups += 1
 
     return {
         "total_contacts": len(contacts),
