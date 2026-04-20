@@ -1616,6 +1616,129 @@ def stripe_create_invoice(data: CreateInvoiceRequest):
         "status": invoice.status,
     }
 
+# --- Manuell trigger for outreach ---
+@app.post("/api/outreach/trigger")
+def trigger_outreach():
+    """Kjør outreach manuelt (brukes for testing og on-demand)."""
+    if not RESEND_API_KEY:
+        raise HTTPException(400, "RESEND_API_KEY ikke satt")
+    t = threading.Thread(target=_run_outreach_now, daemon=True)
+    t.start()
+    return {"ok": True, "message": "Outreach startet i bakgrunnen"}
+
+def _run_outreach_now():
+    """Kjører én outreach-runde uavhengig av klokkeslett."""
+    import requests as _req
+    global OUTREACH_START_DATE
+    today = datetime.now(timezone.utc).date().isoformat()
+    if not OUTREACH_START_DATE:
+        OUTREACH_START_DATE = today
+        try:
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO app_settings (key, value) VALUES ('outreach_start_date', %s) ON CONFLICT (key) DO UPDATE SET value = %s", (today, today))
+                conn.commit()
+        except Exception:
+            pass
+    daily_limit = _get_outreach_limit()
+    print(f"[Outreach MANUELL] Starter (limit: {daily_limit})...")
+    sent_count = 0
+    skipped_count = 0
+    errors = []
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, name, company, email, city, website
+                FROM contacts
+                WHERE status = 'ny'
+                  AND email IS NOT NULL AND email != ''
+                  AND email NOT LIKE '%%,%%'
+                  AND company IS NOT NULL AND company != ''
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, (daily_limit * 3,))
+            candidates = [dict(r) for r in cur.fetchall()]
+        print(f"[Outreach MANUELL] {len(candidates)} kandidater")
+        verified = []
+        for lead in candidates:
+            if len(verified) >= daily_limit:
+                break
+            company = lead.get("company", "")
+            city = lead.get("city", "")
+            try:
+                search_query = f"{company} {city}".strip()
+                resp = _req.get(
+                    f"https://www.google.com/search?q={search_query}&num=5",
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept-Language": "no,nb,nn;q=0.9"},
+                    timeout=10)
+                html = resp.text.lower()
+                company_clean = company.lower().replace(" ", "").replace("-", "")
+                has_website = f"{company_clean}.no" in html or f"{company_clean}.com" in html or f"www.{company_clean}" in html
+                if has_website:
+                    skipped_count += 1
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("UPDATE contacts SET notes = COALESCE(notes,'') || %s WHERE id = %s", (f" | Har nettside (sjekket {today})", lead["id"]))
+                        conn.commit()
+                    continue
+                verified.append(lead)
+                import time as _time
+                _time.sleep(2)
+            except Exception as e:
+                verified.append(lead)
+        print(f"[Outreach MANUELL] {len(verified)} verifiserte")
+        for lead in verified:
+            company = lead.get("company", lead.get("name", "din bedrift"))
+            email = lead["email"]
+            email_html = f"""<html><head><meta charset="utf-8"></head><body><div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">
+<p>Hei du,</p>
+<p>Vi fant ikke nettsiden til {company} online.</p>
+<p>Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside for kun <strong>890,- /mnd</strong> — med <strong>EGET ADMIN-PANEL</strong> som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.</p>
+<p>Vi integrerer sosiale medier, legger til bookingsystem på nettsiden, og kan hjelpe med markedsføring om du ønsker det.</p>
+<p>Svar her så sender jeg et forslag.</p>
+<p>Remy<br>StrategioAI<br><a href="https://www.strategioai.com" style="color:#1a7f4b">www.strategioai.com</a></p>
+<hr style="border:none;border-top:1px solid #ddd;margin:20px 0">
+<p style="font-size:11px;color:#999">Ønsker du ikke flere meldinger? Svar "stopp" så fjerner vi deg umiddelbart.</p>
+</div></body></html>"""
+            try:
+                resp = _req.post("https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                    json={"from": "Remy <remy@strategio.site>", "to": [email], "bcc": ["strategioai@strategioai.com"],
+                          "subject": f"Nettside for {company}?", "html": email_html, "reply_to": "strategioai@strategioai.com",
+                          "headers": {"X-Contact-Id": lead["id"]}}, timeout=10)
+                if resp.status_code in (200, 201):
+                    sent_count += 1
+                    resend_data = resp.json()
+                    resend_id = resend_data.get("id", "")
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("UPDATE contacts SET status='kontaktet', notes=COALESCE(notes,'') || %s WHERE id=%s",
+                                   (f" | Outreach sendt {today} (id:{resend_id})", lead["id"]))
+                        cur.execute("INSERT INTO outreach_emails (id, contact_id, email, company, resend_id, sent_at, status) VALUES (%s,%s,%s,%s,%s,%s,'sent') ON CONFLICT DO NOTHING",
+                                   (str(uuid.uuid4()), lead["id"], email, company, resend_id, datetime.now(timezone.utc).isoformat()))
+                        conn.commit()
+                    print(f"[Outreach MANUELL] SENDT → {company} ({email})")
+                else:
+                    errors.append(f"{company}: {resp.status_code}")
+                import time as _time
+                _time.sleep(1)
+            except Exception as e:
+                errors.append(f"{company}: {e}")
+    except Exception as e:
+        errors.append(f"Generell: {e}")
+    # Telegram-rapport
+    try:
+        if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+            msg = f"📧 <b>Outreach (manuell) — {today}</b>\n✅ Sendt: <b>{sent_count}</b>\n⏭ Hoppet over: <b>{skipped_count}</b>"
+            if errors:
+                msg += f"\n🚨 Feil: {', '.join(errors[:3])}"
+            _req.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
+    except Exception:
+        pass
+    print(f"[Outreach MANUELL] Ferdig — sendt {sent_count}, hoppet over {skipped_count}")
+
 # --- Resend webhook for email tracking ---
 @app.post("/api/webhooks/resend")
 async def resend_webhook(request: Request):
