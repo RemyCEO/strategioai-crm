@@ -14,7 +14,7 @@ import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from contextlib import contextmanager, asynccontextmanager
 import threading
 import time
@@ -308,6 +308,109 @@ def _stripe_auto_sync():
         except Exception as e:
             print(f"[Stripe auto-sync] Feil: {e}")
 
+DAILY_REPORT_HOUR = int(os.getenv("DAILY_REPORT_HOUR", "7"))  # UTC, 07:00 = 09:00 norsk tid
+
+def _daily_health_and_report():
+    """Bakgrunnstråd: daglig helsesjekk + CRM-rapport til Telegram kl DAILY_REPORT_HOUR UTC."""
+    import requests as _req
+    last_report_date = None
+    while True:
+        now = datetime.now(timezone.utc)
+        today = now.date().isoformat()
+        if now.hour >= DAILY_REPORT_HOUR and last_report_date != today:
+            last_report_date = today
+            print(f"[Daglig sjekk] Starter {today}...")
+            errors = []
+            # 1. DB-sjekk
+            try:
+                with get_conn() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT COUNT(*) AS n FROM contacts")
+                    total = cur.fetchone()["n"]
+                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '24 hours'")
+                    new_24h = cur.fetchone()["n"]
+                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '7 days'")
+                    new_week = cur.fetchone()["n"]
+                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE followup_date IS NOT NULL AND followup_date::text <= %s AND status NOT IN ('vunnet','tapt')", (today,))
+                    overdue = cur.fetchone()["n"]
+                    cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE status='kunde'")
+                    customers = cur.fetchone()["n"]
+                    cur.execute("SELECT COUNT(*) AS n FROM deals WHERE status NOT IN ('vunnet','tapt')")
+                    active_deals = cur.fetchone()["n"]
+                    cur.execute("SELECT COALESCE(SUM(value),0) AS v FROM deals WHERE status NOT IN ('vunnet','tapt')")
+                    pipeline_value = cur.fetchone()["v"]
+                    # Sjekk lead-scraper status
+                    cur.execute("SELECT report_date, data FROM lead_reports ORDER BY report_date DESC LIMIT 1")
+                    last_report = cur.fetchone()
+            except Exception as e:
+                errors.append(f"DB: {e}")
+                print(f"[Daglig sjekk] DB-feil: {e}")
+                total = new_24h = new_week = overdue = customers = active_deals = 0
+                pipeline_value = 0
+                last_report = None
+
+            # 2. Stripe MRR-sjekk
+            mrr = 0.0
+            if STRIPE_SECRET_KEY:
+                try:
+                    subs = stripe.Subscription.list(status="active", limit=100)
+                    for s in subs.auto_paging_iter():
+                        amount, interval, _, _pe = _stripe_sub_info(s)
+                        mrr += amount / 12 if interval == "year" else amount
+                except Exception as e:
+                    errors.append(f"Stripe: {e}")
+
+            # 3. Bygg rapport
+            status_icon = "🔴" if errors else "🟢"
+            msg = f"{status_icon} <b>Daglig CRM-sjekk — {today}</b>\n\n"
+            msg += f"👥 Totale leads: <b>{total}</b>\n"
+            msg += f"🆕 Nye siste 24t: <b>{new_24h}</b>\n"
+            msg += f"📅 Nye siste 7d: <b>{new_week}</b>\n"
+            msg += f"🤝 Kunder: <b>{customers}</b>\n"
+            msg += f"📊 Aktive deals: <b>{active_deals}</b> ({pipeline_value:,.0f} kr)\n"
+            msg += f"💰 MRR: <b>{mrr:,.0f} kr</b>\n"
+            if overdue > 0:
+                msg += f"⏰ <b>Forfalt oppfølging: {overdue}</b>\n"
+            # Lead-scraper status
+            if last_report:
+                lr_date = last_report["report_date"]
+                lr_data = json.loads(last_report["data"]) if isinstance(last_report["data"], str) else last_report["data"]
+                lr_stats = lr_data.get("stats", {})
+                msg += f"\n🔍 Siste lead-scrape: {lr_date}\n"
+                msg += f"   Importert: {lr_stats.get('imported', '?')} | Duplikater: {lr_stats.get('skipped', '?')}\n"
+                if str(lr_date) < (datetime.now(timezone.utc) - timedelta(days=2)).date().isoformat():
+                    msg += f"   ⚠️ <b>Lead-scraper har ikke kjørt på 2+ dager!</b>\n"
+                    if not GOOGLE_PLACES_API_KEY:
+                        msg += f"   → GOOGLE_PLACES_API_KEY mangler\n"
+            elif not GOOGLE_PLACES_API_KEY:
+                msg += f"\n⚠️ Lead-scraper: <b>DEAKTIVERT</b> (mangler GOOGLE_PLACES_API_KEY)\n"
+            else:
+                msg += f"\n⚠️ Ingen lead-rapporter funnet\n"
+
+            if errors:
+                msg += f"\n🚨 <b>Feil oppdaget:</b>\n"
+                for e in errors:
+                    msg += f"  • {e}\n"
+
+            msg += f"\n🔗 <a href='https://crm.strategio.site'>Åpne CRM</a>"
+
+            # 4. Send til Telegram
+            try:
+                if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+                    _req.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                        json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML", "disable_web_page_preview": True},
+                        timeout=10,
+                    )
+                    print(f"[Daglig sjekk] Rapport sendt til Telegram")
+                else:
+                    print(f"[Daglig sjekk] Telegram ikke konfigurert (token={bool(TELEGRAM_TOKEN)}, chat_id={bool(TELEGRAM_CHAT_ID)})")
+            except Exception as e:
+                print(f"[Daglig sjekk] Telegram-feil: {e}")
+
+        time.sleep(300)  # sjekk hvert 5. minutt
+
+
 @asynccontextmanager
 async def lifespan(app):
     t = threading.Thread(target=_stripe_auto_sync, daemon=True)
@@ -317,6 +420,9 @@ async def lifespan(app):
         t2 = threading.Thread(target=_daily_lead_scrape, daemon=True)
         t2.start()
         print(f"[Lead scraper] Startet — kjører daglig kl {LEAD_SCRAPE_HOUR}:00 UTC")
+    t3 = threading.Thread(target=_daily_health_and_report, daemon=True)
+    t3.start()
+    print(f"[Daglig sjekk] Startet — kjører kl {DAILY_REPORT_HOUR}:00 UTC daglig")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -1721,6 +1827,42 @@ async def trigger_daily_report():
     """Trigger daglig rapport manuelt (kalles av Railway cron eller n8n)."""
     await send_daily_report()
     return {"ok": True}
+
+@app.post("/api/health-check")
+async def trigger_health_check():
+    """Manuell trigger av daglig helsesjekk + rapport til Telegram."""
+    import requests as _req
+    today = datetime.now(timezone.utc).date().isoformat()
+    errors = []
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) AS n FROM contacts")
+            total = cur.fetchone()["n"]
+            cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE created_at >= now() - interval '24 hours'")
+            new_24h = cur.fetchone()["n"]
+            cur.execute("SELECT COUNT(*) AS n FROM contacts WHERE status='kunde'")
+            customers = cur.fetchone()["n"]
+    except Exception as e:
+        errors.append(f"DB: {e}")
+        total = new_24h = customers = 0
+    status = "ok" if not errors else "error"
+    msg = f"🔧 <b>Manuell helsesjekk — {today}</b>\n\n"
+    msg += f"👥 Totale leads: <b>{total}</b>\n"
+    msg += f"🆕 Nye siste 24t: <b>{new_24h}</b>\n"
+    msg += f"🤝 Kunder: <b>{customers}</b>\n"
+    if errors:
+        msg += f"\n🚨 Feil: {', '.join(errors)}\n"
+    else:
+        msg += f"\n✅ Alt fungerer\n"
+    msg += f"\n🔗 <a href='https://crm.strategio.site'>Åpne CRM</a>"
+    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        _req.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML", "disable_web_page_preview": True},
+            timeout=10,
+        )
+    return {"ok": True, "status": status, "total": total, "errors": errors}
 
 
 # --- Lead-rapporter API ---
