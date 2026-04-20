@@ -549,7 +549,7 @@ def _daily_outreach():
                     company = lead.get("company", lead.get("name", "din bedrift"))
                     email = lead["email"]
 
-                    email_html = f"""<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">
+                    email_html = f"""<html><head><meta charset="utf-8"></head><body><div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">
 <p>Hei du,</p>
 <p>Jeg la merke til at {company} ikke har nettside ennå.</p>
 <p>Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside fra kun <strong>890,- /mnd</strong> — med <strong>EGET ADMIN-PANEL</strong> som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.</p>
@@ -558,7 +558,7 @@ def _daily_outreach():
 <p>Remy<br>StrategioAI<br><a href="https://www.strategioai.com" style="color:#1a7f4b">www.strategioai.com</a></p>
 <hr style="border:none;border-top:1px solid #ddd;margin:20px 0">
 <p style="font-size:11px;color:#999">Ønsker du ikke flere meldinger? Svar "stopp" så fjerner vi deg umiddelbart.</p>
-</div>"""
+</div></body></html>"""
 
                     try:
                         resp = _req.post(
