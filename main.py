@@ -414,10 +414,46 @@ def _daily_health_and_report():
 # --- Outreach email-kampanje ---
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 OUTREACH_HOUR = int(os.getenv("OUTREACH_HOUR", "7"))  # UTC, 07:00 = 09:00 norsk tid
-OUTREACH_MAX_PER_DAY = int(os.getenv("OUTREACH_MAX_PER_DAY", "5"))
+def _load_outreach_start_date():
+    """Last startdato fra DB eller env, så opptrapping overlever redeploy."""
+    env_date = os.getenv("OUTREACH_START_DATE", "")
+    if env_date:
+        return env_date
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT value FROM app_settings WHERE key = 'outreach_start_date'")
+            row = cur.fetchone()
+            if row:
+                return row["value"]
+    except Exception:
+        pass
+    return ""
+
+OUTREACH_START_DATE = _load_outreach_start_date()
+
+def _get_outreach_limit():
+    """Automatisk opptrapping: uke1=5, uke2=10, uke3=20, uke4+=30"""
+    start = OUTREACH_START_DATE
+    if not start:
+        return 5
+    try:
+        start_date = datetime.fromisoformat(start).date()
+        days_active = (datetime.now(timezone.utc).date() - start_date).days
+        if days_active < 7:
+            return 5
+        elif days_active < 14:
+            return 10
+        elif days_active < 21:
+            return 20
+        else:
+            return 30
+    except Exception:
+        return 5
 
 def _daily_outreach():
     """Bakgrunnstråd: sender outreach-emails til leads uten nettside, man-fre kl OUTREACH_HOUR UTC."""
+    global OUTREACH_START_DATE
     import requests as _req
     last_outreach_date = None
     while True:
@@ -425,8 +461,19 @@ def _daily_outreach():
         today = now.date().isoformat()
         weekday = now.weekday()  # 0=mandag, 6=søndag
         if now.hour >= OUTREACH_HOUR and last_outreach_date != today and weekday < 5:
+            # Sett startdato ved første kjøring
+            if not OUTREACH_START_DATE:
+                OUTREACH_START_DATE = today
+                try:
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("INSERT INTO app_settings (key, value) VALUES ('outreach_start_date', %s) ON CONFLICT (key) DO UPDATE SET value = %s", (today, today))
+                        conn.commit()
+                except Exception:
+                    pass
+            daily_limit = _get_outreach_limit()
             last_outreach_date = today
-            print(f"[Outreach] Starter daglig utsending {today}...")
+            print(f"[Outreach] Starter daglig utsending {today} (limit: {daily_limit})...")
             sent_count = 0
             skipped_count = 0
             errors = []
@@ -444,14 +491,14 @@ def _daily_outreach():
                           AND company IS NOT NULL AND company != ''
                         ORDER BY created_at DESC
                         LIMIT %s
-                    """, (OUTREACH_MAX_PER_DAY * 3,))  # hent 3x for å ha buffer etter Google-sjekk
+                    """, (daily_limit * 3,))  # hent 3x for å ha buffer etter Google-sjekk
                     candidates = [dict(r) for r in cur.fetchall()]
 
                 print(f"[Outreach] {len(candidates)} kandidater funnet")
 
                 verified = []
                 for lead in candidates:
-                    if len(verified) >= OUTREACH_MAX_PER_DAY:
+                    if len(verified) >= daily_limit:
                         break
 
                     company = lead.get("company", "")
@@ -597,7 +644,7 @@ async def lifespan(app):
     if RESEND_API_KEY:
         t4 = threading.Thread(target=_daily_outreach, daemon=True)
         t4.start()
-        print(f"[Outreach] Startet — sender {OUTREACH_MAX_PER_DAY} emails daglig kl {OUTREACH_HOUR}:00 UTC (man-fre)")
+        print(f"[Outreach] Startet — auto-opptrapping (5→10→20→30) kl {OUTREACH_HOUR}:00 UTC (man-fre)")
     else:
         print("[Outreach] DEAKTIVERT — mangler RESEND_API_KEY")
     yield
