@@ -325,6 +325,101 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
 .btn-mute { background:rgba(18,31,48,0.8); color:var(--muted); border:1px solid var(--border); border-radius:50%; width:36px; height:36px; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; }
 .btn-mute.muted { background:rgba(245,158,11,.15); color:#f59e0b; border-color:rgba(245,158,11,.3); }
 .pulse-ring { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--green); margin-right:8px; animation:pulse-glow 1.5s ease-in-out infinite; }
+
+/* ── MOBILE HAMBURGER ─────────────────────── */
+.mobile-hamburger {
+  display:none; background:none; border:none; color:var(--text); font-size:22px;
+  cursor:pointer; padding:4px 8px; border-radius:6px; transition:.15s;
+}
+.mobile-hamburger:hover { background:rgba(34,197,94,.08); }
+.sidebar-overlay {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+  z-index:90; backdrop-filter:blur(4px);
+}
+.sidebar-overlay.open { display:block; }
+
+/* ── RESPONSIVE ───────────────────────────── */
+@media (max-width: 768px) {
+  body { flex-direction:column; }
+
+  /* Sidebar = drawer */
+  .sidebar {
+    position:fixed; left:0; top:0; bottom:0; z-index:95;
+    width:260px; transform:translateX(-100%);
+    transition:transform .3s cubic-bezier(.4,0,.2,1);
+  }
+  .sidebar.open { transform:translateX(0); }
+  .sidebar-overlay.open { display:block; }
+  .mobile-hamburger { display:block; }
+
+  /* Topbar */
+  .topbar { padding:12px 16px; gap:8px; }
+  .topbar h1 { font-size:15px; }
+  .topbar-actions { gap:6px; flex-wrap:wrap; }
+  .topbar-actions .btn { padding:6px 10px; font-size:11px; }
+
+  /* Content */
+  .content { padding:16px; }
+
+  /* Stats grid: 2 kolonne */
+  .stats-grid { grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:16px; }
+  .stat-card { padding:14px; }
+  .stat-card .value { font-size:22px; }
+  .stat-card .label { font-size:9px; }
+
+  /* Table — skjul kolonner, scroll horisontalt */
+  .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .table-header { flex-direction:column; gap:8px; padding:12px 14px; }
+  .table-header input { width:100%; font-size:14px; padding:10px 14px; }
+  .table-header select { width:100%; }
+  thead th:nth-child(3), tbody td:nth-child(3), /* Firma */
+  thead th:nth-child(4), tbody td:nth-child(4), /* Kategori */
+  thead th:nth-child(5), tbody td:nth-child(5)  /* E-post */
+  { display:none; }
+  thead th, tbody td { padding:10px 8px; font-size:12px; }
+  thead th:first-child, tbody td:first-child { padding-left:8px; }
+
+  /* Pipeline */
+  .pipeline { grid-template-columns:1fr; gap:10px; }
+  .pipeline-col { min-width:unset; }
+
+  /* Panel = fullscreen */
+  .panel { width:100%; left:0; }
+  .panel-header { padding:14px 16px; }
+  .panel-body { padding:14px 16px; }
+  .info-grid { grid-template-columns:1fr; gap:8px; }
+  .tabs { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tab { white-space:nowrap; padding:8px 10px; font-size:11px; }
+
+  /* Modal */
+  .modal { width:calc(100vw - 32px); max-width:none; padding:20px; margin:16px; }
+  .form-row { grid-template-columns:1fr; }
+
+  /* Call bar */
+  .call-bar { padding:10px 16px; gap:10px; }
+  .call-bar .call-name { font-size:13px; }
+  .call-bar .call-timer { font-size:13px; }
+  .btn-hangup, .btn-call { width:38px; height:38px; font-size:16px; }
+  .btn-mute { width:32px; height:32px; font-size:12px; }
+
+  /* Kategori pills */
+  .cat-badge { font-size:10px; padding:2px 6px; }
+
+  /* Deal rows */
+  .deal-row { padding:10px 12px; }
+  .deal-row .deal-meta { flex-wrap:wrap; gap:6px; }
+
+  /* Snarveier skjult på mobil */
+  .sidebar > div:last-child { display:none; }
+}
+
+/* Ekstra liten skjerm (iPhone SE etc) */
+@media (max-width: 380px) {
+  .stats-grid { grid-template-columns:1fr; }
+  .stat-card .value { font-size:20px; }
+  .topbar h1 { font-size:14px; }
+  thead th:nth-child(6), tbody td:nth-child(6) { display:none; } /* Telefon — vises i panel */
+}
 </style>
 </head>
 <body>
@@ -365,10 +460,16 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
   </div>
 </div>
 
+<!-- SIDEBAR OVERLAY (mobil) -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
 <!-- MAIN -->
 <div class="main">
   <div class="topbar">
-    <h1 id="view-title">Dashboard</h1>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="mobile-hamburger" id="hamburger-btn" onclick="toggleSidebar()">☰</button>
+      <h1 id="view-title">Dashboard</h1>
+    </div>
     <div class="topbar-actions" id="topbar-actions"></div>
   </div>
   <div class="content" id="content"></div>
@@ -2547,6 +2648,22 @@ async function triggerLeadScrape() {
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔍 Kjør scraping nå'; }
 }
+
+// --- MOBILE SIDEBAR ---
+function toggleSidebar() {
+  document.querySelector('.sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+// Lukk sidebar når nav-item klikkes på mobil
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    if (window.innerWidth <= 768) closeSidebar();
+  });
+});
 
 // --- TWILIO BROWSER CALLING ---
 let _twilioDevice = null;
