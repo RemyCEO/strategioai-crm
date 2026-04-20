@@ -6,6 +6,7 @@
 <title>StrategioAI CRM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://sdk.twilio.com/js/client/releases/1.14/twilio.min.js"></script>
 <style>
 :root {
   --green: #22c55e;
@@ -301,6 +302,29 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
 
 /* Kategori-badges */
 .cat-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; background:rgba(99,102,241,.12); color:#a5b4fc; white-space:nowrap; }
+
+/* ── TWILIO CALL BAR ─────────────────────── */
+.call-bar {
+  position:fixed; bottom:0; left:0; right:0; z-index:200;
+  background:linear-gradient(135deg,rgba(15,30,47,0.98),rgba(12,24,38,0.99));
+  border-top:2px solid var(--green);
+  padding:14px 28px; display:flex; align-items:center; gap:16px;
+  box-shadow:0 -8px 40px rgba(0,0,0,.6), 0 0 30px rgba(34,197,94,0.1);
+  backdrop-filter:blur(20px);
+  transform:translateY(100%); transition:transform .3s cubic-bezier(.4,0,.2,1);
+}
+.call-bar.active { transform:translateY(0); }
+.call-bar .call-name { font-size:15px; font-weight:700; }
+.call-bar .call-number { font-size:12px; color:var(--muted); }
+.call-bar .call-status-text { font-size:12px; color:var(--green); font-weight:600; }
+.call-bar .call-timer { font-size:14px; font-weight:700; color:var(--green); font-variant-numeric:tabular-nums; margin-left:auto; }
+.btn-call { background:linear-gradient(135deg,#22c55e,#16a34a); color:#000; border:none; border-radius:50%; width:42px; height:42px; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; }
+.btn-call:hover { transform:scale(1.1); box-shadow:0 0 20px rgba(34,197,94,.5); }
+.btn-hangup { background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; border-radius:50%; width:42px; height:42px; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; }
+.btn-hangup:hover { transform:scale(1.1); box-shadow:0 0 20px rgba(239,68,68,.5); }
+.btn-mute { background:rgba(18,31,48,0.8); color:var(--muted); border:1px solid var(--border); border-radius:50%; width:36px; height:36px; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; }
+.btn-mute.muted { background:rgba(245,158,11,.15); color:#f59e0b; border-color:rgba(245,158,11,.3); }
+.pulse-ring { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--green); margin-right:8px; animation:pulse-glow 1.5s ease-in-out infinite; }
 </style>
 </head>
 <body>
@@ -348,6 +372,18 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
     <div class="topbar-actions" id="topbar-actions"></div>
   </div>
   <div class="content" id="content"></div>
+</div>
+
+<!-- CALL BAR -->
+<div class="call-bar" id="call-bar">
+  <div>
+    <div class="call-name" id="call-name">—</div>
+    <div class="call-number" id="call-number">—</div>
+    <div class="call-status-text" id="call-status-text">Ringer...</div>
+  </div>
+  <div class="call-timer" id="call-timer">00:00</div>
+  <button class="btn-mute" id="btn-mute" onclick="toggleMute()" title="Mute">🎙️</button>
+  <button class="btn-hangup" id="btn-hangup" onclick="hangupCall()" title="Legg på">📞</button>
 </div>
 
 <!-- CONTACT PANEL -->
@@ -725,6 +761,7 @@ let contactPage = 0;
 const PAGE_SIZE = 50;
 
 const CATEGORIES = {
+  ai_resepsjonist:'🤖 AI Resepsjonist', trenger_nettside:'🌐 Trenger nettside',
   gym:'🏋️ Gym', restaurant:'🍽️ Restaurant', pizza:'🍕 Pizza', 'kafé':'☕ Kafé/Bar',
   transport:'🚗 Transport', 'frisør':'💇 Frisør', helse:'🏥 Helse',
   eiendom:'🏠 Eiendom', butikk:'🛒 Butikk', 'håndverk':'🔨 Håndverk',
@@ -944,7 +981,7 @@ async function renderPanelTab(c) {
       <div class="panel-section">
         <div class="info-grid">
           <div class="info-item"><div class="key">E-post</div><div class="val">${c.email ? `<a href="mailto:${c.email}" style="color:var(--green)">${c.email}</a>` : '—'}</div></div>
-          <div class="info-item"><div class="key">Telefon</div><div class="val">${c.phone ? `<a href="tel:${c.phone}" style="color:var(--green)">${c.phone}</a>` : '—'}</div></div>
+          <div class="info-item"><div class="key">Telefon</div><div class="val" style="display:flex;align-items:center;gap:8px">${c.phone ? `<a href="tel:${c.phone}" style="color:var(--green)">${c.phone}</a><button class="btn btn-green btn-sm" style="padding:3px 8px;font-size:11px;border-radius:6px" onclick="event.stopPropagation();startCall('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.id}')">📞 Ring</button>` : '—'}</div></div>
           <div class="info-item"><div class="key">Kilde</div><div class="val">${c.source || '—'}</div></div>
           <div class="info-item"><div class="key">Status</div><div class="val"><span class="badge ${c.status}">${c.status}</span></div></div>
           <div class="info-item"><div class="key">Kategori</div><div class="val">${c.category ? `<span class="cat-badge">${CATEGORIES[c.category]||c.category}</span>` : '—'}</div></div>
@@ -2510,6 +2547,129 @@ async function triggerLeadScrape() {
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔍 Kjør scraping nå'; }
 }
+
+// --- TWILIO BROWSER CALLING ---
+let _twilioDevice = null;
+let _twilioReady = false;
+let _activeCall = null;
+let _callTimer = null;
+let _callSeconds = 0;
+let _callMuted = false;
+let _callContactId = null;
+
+async function initTwilio() {
+  try {
+    const status = await api('/api/twilio/status');
+    if (!status || !status.configured) return;
+    const res = await api('/api/twilio/token');
+    if (!res || !res.token) return;
+    _twilioDevice = new Twilio.Device(res.token, {
+      codecPreferences: ['opus', 'pcmu'],
+      enableRingingState: true,
+    });
+    _twilioDevice.on('ready', () => { _twilioReady = true; console.log('[Twilio] Klar for samtaler'); });
+    _twilioDevice.on('error', (err) => { console.error('[Twilio] Feil:', err); });
+    _twilioDevice.on('connect', (conn) => {
+      _activeCall = conn;
+      document.getElementById('call-status-text').textContent = 'Tilkoblet';
+      startCallTimer();
+    });
+    _twilioDevice.on('disconnect', () => {
+      endCallUI();
+    });
+  } catch(e) {
+    console.log('[Twilio] Ikke konfigurert:', e.message);
+  }
+}
+
+function startCall(phone, name, contactId) {
+  if (!phone) return;
+  // Normaliser nummer
+  let to = phone.replace(/\s/g, '');
+  if (!to.startsWith('+')) to = '+47' + to;
+
+  _callContactId = contactId;
+  _callMuted = false;
+
+  // Vis call bar
+  document.getElementById('call-name').textContent = name || 'Ukjent';
+  document.getElementById('call-number').textContent = to;
+  document.getElementById('call-status-text').textContent = 'Ringer...';
+  document.getElementById('call-timer').textContent = '00:00';
+  document.getElementById('call-bar').classList.add('active');
+  document.getElementById('btn-mute').classList.remove('muted');
+
+  if (_twilioReady && _twilioDevice) {
+    // Browser-basert ringing via Twilio SDK
+    _twilioDevice.connect({ To: to });
+  } else {
+    // Fallback: REST API-basert ringing
+    api('/api/twilio/call', 'POST', { to: to, contact_id: contactId })
+      .then(res => {
+        if (res && res.ok) {
+          document.getElementById('call-status-text').textContent = 'Samtale startet (telefon)';
+          startCallTimer();
+          // Logg aktivitet lokalt
+          setTimeout(() => endCallUI(), 2000);
+        } else {
+          document.getElementById('call-status-text').textContent = 'Feil ved oppringing';
+          setTimeout(() => endCallUI(), 3000);
+        }
+      })
+      .catch(() => {
+        document.getElementById('call-status-text').textContent = 'Twilio ikke konfigurert';
+        setTimeout(() => endCallUI(), 3000);
+      });
+  }
+}
+
+function hangupCall() {
+  if (_activeCall) {
+    _activeCall.disconnect();
+  } else if (_twilioDevice) {
+    _twilioDevice.disconnectAll();
+  }
+  // Logg samtale som aktivitet
+  if (_callContactId && _callSeconds > 0) {
+    const phone = document.getElementById('call-number').textContent;
+    const mins = Math.floor(_callSeconds / 60);
+    const secs = _callSeconds % 60;
+    api('/api/activities', 'POST', {
+      contact_id: _callContactId,
+      type: 'call',
+      note: `Utgående samtale til ${phone} — varighet: ${mins}m ${secs}s`
+    });
+  }
+  endCallUI();
+}
+
+function toggleMute() {
+  if (!_activeCall) return;
+  _callMuted = !_callMuted;
+  _activeCall.mute(_callMuted);
+  document.getElementById('btn-mute').classList.toggle('muted', _callMuted);
+}
+
+function startCallTimer() {
+  _callSeconds = 0;
+  clearInterval(_callTimer);
+  _callTimer = setInterval(() => {
+    _callSeconds++;
+    const m = String(Math.floor(_callSeconds / 60)).padStart(2, '0');
+    const s = String(_callSeconds % 60).padStart(2, '0');
+    document.getElementById('call-timer').textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+function endCallUI() {
+  clearInterval(_callTimer);
+  _activeCall = null;
+  _callContactId = null;
+  document.getElementById('call-bar').classList.remove('active');
+}
+
+// Init Twilio når siden laster
+initTwilio();
 
 boot();
 </script>
