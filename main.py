@@ -549,22 +549,16 @@ def _daily_outreach():
                     company = lead.get("company", lead.get("name", "din bedrift"))
                     email = lead["email"]
 
-                    email_body = f"""Hei du,
-
-Jeg la merke til at {company} ikke har nettside ennå.
-
-Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside fra kun 890,- /mnd — med EGET ADMIN-PANEL som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.
-
-Vi integrerer sosiale medier, legger til bookingsystem på nettsiden, og kan hjelpe med markedsføring om du ønsker det.
-
-Svar her så sender jeg et forslag.
-
-Remy
-StrategioAI
-www.strategioai.com
-
----
-Ønsker du ikke flere meldinger? Svar "stopp" så fjerner vi deg umiddelbart."""
+                    email_html = f"""<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">
+<p>Hei du,</p>
+<p>Jeg la merke til at {company} ikke har nettside ennå.</p>
+<p>Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside fra kun <strong>890,- /mnd</strong> — med <strong>EGET ADMIN-PANEL</strong> som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.</p>
+<p>Vi integrerer sosiale medier, legger til bookingsystem på nettsiden, og kan hjelpe med markedsføring om du ønsker det.</p>
+<p>Svar her så sender jeg et forslag.</p>
+<p>Remy<br>StrategioAI<br><a href="https://www.strategioai.com" style="color:#1a7f4b">www.strategioai.com</a></p>
+<hr style="border:none;border-top:1px solid #ddd;margin:20px 0">
+<p style="font-size:11px;color:#999">Ønsker du ikke flere meldinger? Svar "stopp" så fjerner vi deg umiddelbart.</p>
+</div>"""
 
                     try:
                         resp = _req.post(
@@ -576,22 +570,32 @@ www.strategioai.com
                             json={
                                 "from": "Remy <remy@strategio.site>",
                                 "to": [email],
+                                "bcc": ["strategioai@strategioai.com"],
                                 "subject": f"Nettside for {company}?",
-                                "text": email_body,
-                                "reply_to": "strategioai@strategioai.com"
+                                "html": email_html,
+                                "reply_to": "strategioai@strategioai.com",
+                                "headers": {"X-Contact-Id": lead["id"]}
                             },
                             timeout=10
                         )
 
                         if resp.status_code in (200, 201):
                             sent_count += 1
-                            # Oppdater lead status i CRM
+                            resend_data = resp.json()
+                            resend_id = resend_data.get("id", "")
+                            # Oppdater lead status + lagre resend email ID
                             with get_conn() as conn:
                                 cur = conn.cursor()
                                 cur.execute("UPDATE contacts SET status='kontaktet', notes=COALESCE(notes,'') || %s WHERE id=%s",
-                                           (f" | Outreach sendt {today}", lead["id"]))
+                                           (f" | Outreach sendt {today} (id:{resend_id})", lead["id"]))
+                                # Lagre email-tracking i egen tabell
+                                cur.execute("""
+                                    INSERT INTO outreach_emails (id, contact_id, email, company, resend_id, sent_at, status)
+                                    VALUES (%s, %s, %s, %s, %s, %s, 'sent')
+                                    ON CONFLICT DO NOTHING
+                                """, (str(uuid.uuid4()), lead["id"], email, company, resend_id, datetime.now(timezone.utc).isoformat()))
                                 conn.commit()
-                            print(f"[Outreach] SENDT → {company} ({email})")
+                            print(f"[Outreach] SENDT → {company} ({email}) [resend:{resend_id}]")
                         else:
                             errors.append(f"{company}: Resend {resp.status_code} - {resp.text[:100]}")
                             print(f"[Outreach] FEIL → {company}: {resp.status_code}")
@@ -814,6 +818,22 @@ def init_db():
                 updated_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
             );
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS outreach_emails (
+                id TEXT PRIMARY KEY,
+                contact_id TEXT,
+                email TEXT,
+                company TEXT,
+                resend_id TEXT,
+                sent_at TEXT,
+                status TEXT DEFAULT 'sent',
+                opened_at TEXT,
+                clicked_at TEXT,
+                bounced_at TEXT
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_outreach_resend_id ON outreach_emails(resend_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_outreach_contact_id ON outreach_emails(contact_id);")
         # Seed standardprodukter
         cur.execute("SELECT COUNT(*) as cnt FROM products")
         if cur.fetchone()["cnt"] == 0:
@@ -1594,6 +1614,74 @@ def stripe_create_invoice(data: CreateInvoiceRequest):
         "hosted_url": invoice.hosted_invoice_url,
         "pdf": invoice.invoice_pdf,
         "status": invoice.status,
+    }
+
+# --- Resend webhook for email tracking ---
+@app.post("/api/webhooks/resend")
+async def resend_webhook(request: Request):
+    """Mottar open/delivered/bounced events fra Resend."""
+    try:
+        data = await request.json()
+        event_type = data.get("type", "")
+        email_data = data.get("data", {})
+        resend_id = email_data.get("email_id", "")
+
+        if not resend_id:
+            return {"ok": True}
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        with get_conn() as conn:
+            cur = conn.cursor()
+            if event_type == "email.opened":
+                cur.execute("UPDATE outreach_emails SET status='opened', opened_at=%s WHERE resend_id=%s AND opened_at IS NULL", (now, resend_id))
+            elif event_type == "email.clicked":
+                cur.execute("UPDATE outreach_emails SET clicked_at=%s WHERE resend_id=%s", (now, resend_id))
+            elif event_type == "email.bounced":
+                cur.execute("UPDATE outreach_emails SET status='bounced', bounced_at=%s WHERE resend_id=%s", (now, resend_id))
+                # Marker kontakten som tapt ved bounce
+                cur.execute("UPDATE contacts SET status='tapt', notes=COALESCE(notes,'') || %s WHERE id=(SELECT contact_id FROM outreach_emails WHERE resend_id=%s LIMIT 1)",
+                           (f" | Email bounced {now[:10]}", resend_id))
+            elif event_type == "email.delivered":
+                cur.execute("UPDATE outreach_emails SET status='delivered' WHERE resend_id=%s AND status='sent'", (resend_id,))
+            conn.commit()
+
+        print(f"[Resend webhook] {event_type} for {resend_id}")
+        return {"ok": True}
+    except Exception as e:
+        print(f"[Resend webhook] Feil: {e}")
+        return {"ok": False}
+
+@app.get("/api/outreach/{contact_id}")
+def get_outreach_status(contact_id: str):
+    """Hent outreach-email status for en kontakt."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM outreach_emails WHERE contact_id=%s ORDER BY sent_at DESC", (contact_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+@app.get("/api/outreach-stats")
+def outreach_stats():
+    """Oversikt over outreach-kampanjen."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) AS total FROM outreach_emails")
+        total = cur.fetchone()["total"]
+        cur.execute("SELECT COUNT(*) AS n FROM outreach_emails WHERE status='delivered'")
+        delivered = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM outreach_emails WHERE status='opened'")
+        opened = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM outreach_emails WHERE status='bounced'")
+        bounced = cur.fetchone()["n"]
+        cur.execute("SELECT sent_at, email, company, status, opened_at FROM outreach_emails ORDER BY sent_at DESC LIMIT 20")
+        recent = [dict(r) for r in cur.fetchall()]
+    return {
+        "total": total,
+        "delivered": delivered,
+        "opened": opened,
+        "bounced": bounced,
+        "open_rate": round(opened / max(total, 1) * 100, 1),
+        "recent": recent
     }
 
 @app.post("/api/webhooks/stripe")

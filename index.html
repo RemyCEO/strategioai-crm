@@ -1117,11 +1117,14 @@ async function renderPanelTab(c) {
         <button class="btn btn-green btn-sm" onclick="openComposeGmail('${c.email||''}','${id}')">✉️ Skriv e-post</button>
       </div>
       <div id="gmail-panel-content"><div style="color:var(--muted);font-size:13px">Laster e-poster...</div></div>`;
+  } else if (panelTab === 'outreach') {
+    tabContent = `<div id="outreach-panel-content"><div style="color:var(--muted);font-size:13px">Laster outreach-data...</div></div>`;
   }
 
   document.getElementById('panel-body').innerHTML = `
     <div class="tabs">
       <div class="tab ${panelTab==='info'?'active':''}" onclick="panelTab='info';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')})">Info & Aktivitet</div>
+      <div class="tab ${panelTab==='outreach'?'active':''}" onclick="panelTab='outreach';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')})">📨 Outreach</div>
       <div class="tab ${panelTab==='stripe'?'active':''}" onclick="panelTab='stripe';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')});loadStripePanel('${c.email||''}')">💳 Stripe</div>
       <div class="tab ${panelTab==='gmail'?'active':''}" onclick="panelTab='gmail';renderPanelTab(${JSON.stringify(c).replace(/</g,'\\u003c')})">📧 Gmail</div>
     </div>
@@ -1132,6 +1135,9 @@ async function renderPanelTab(c) {
   }
   if (panelTab === 'gmail') {
     loadGmailPanel(c.email || '', id);
+  }
+  if (panelTab === 'outreach') {
+    loadOutreachPanel(id);
   }
 }
 
@@ -1810,6 +1816,37 @@ async function renderGmail() {
         Klikk "Forny tilgang" over for å re-autentisere med Google. Refresh-token er lagret i Supabase og overlever Railway-restarter.
       </div>
     </div>`;
+}
+
+async function loadOutreachPanel(contactId) {
+  const el = document.getElementById('outreach-panel-content');
+  if (!el) return;
+  const emails = await api(`/api/outreach/${contactId}`);
+  if (!emails || emails.length === 0) {
+    el.innerHTML = `<p style="font-size:12px;color:var(--muted)">Ingen outreach-emails sendt til denne kontakten.</p>`;
+    return;
+  }
+  const statusIcons = { sent:'📤', delivered:'✅', opened:'👀', bounced:'🔴' };
+  const statusLabels = { sent:'Sendt', delivered:'Levert', opened:'Åpnet', bounced:'Bounced' };
+  const statusColors = { sent:'var(--muted)', delivered:'var(--blue)', opened:'var(--green)', bounced:'var(--danger)' };
+  el.innerHTML = emails.map(e => `
+    <div style="padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">${statusIcons[e.status] || '📤'}</span>
+          <div>
+            <div style="font-size:13px;font-weight:600">Nettside for ${e.company}?</div>
+            <div style="font-size:11px;color:var(--muted)">${e.email}</div>
+          </div>
+        </div>
+        <span style="font-size:11px;font-weight:600;color:${statusColors[e.status] || 'var(--muted)'};background:${e.status==='opened'?'rgba(34,197,94,.1)':e.status==='bounced'?'rgba(239,68,68,.1)':'var(--surface2)'};padding:2px 8px;border-radius:12px">${statusLabels[e.status] || e.status}</span>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--muted)">
+        <span>Sendt: ${e.sent_at ? new Date(e.sent_at).toLocaleDateString('nb-NO') + ' ' + new Date(e.sent_at).toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit'}) : '—'}</span>
+        ${e.opened_at ? '<span style="color:var(--green)">Åpnet: ' + new Date(e.opened_at).toLocaleDateString('nb-NO') + ' ' + new Date(e.opened_at).toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit'}) + '</span>' : ''}
+        ${e.bounced_at ? '<span style="color:var(--danger)">Bounced: ' + new Date(e.bounced_at).toLocaleDateString('nb-NO') + '</span>' : ''}
+      </div>
+    </div>`).join('');
 }
 
 async function connectGmail() {
