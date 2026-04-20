@@ -411,6 +411,177 @@ def _daily_health_and_report():
         time.sleep(300)  # sjekk hvert 5. minutt
 
 
+# --- Outreach email-kampanje ---
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+OUTREACH_HOUR = int(os.getenv("OUTREACH_HOUR", "7"))  # UTC, 07:00 = 09:00 norsk tid
+OUTREACH_MAX_PER_DAY = int(os.getenv("OUTREACH_MAX_PER_DAY", "5"))
+
+def _daily_outreach():
+    """Bakgrunnstråd: sender outreach-emails til leads uten nettside, man-fre kl OUTREACH_HOUR UTC."""
+    import requests as _req
+    last_outreach_date = None
+    while True:
+        now = datetime.now(timezone.utc)
+        today = now.date().isoformat()
+        weekday = now.weekday()  # 0=mandag, 6=søndag
+        if now.hour >= OUTREACH_HOUR and last_outreach_date != today and weekday < 5:
+            last_outreach_date = today
+            print(f"[Outreach] Starter daglig utsending {today}...")
+            sent_count = 0
+            skipped_count = 0
+            errors = []
+
+            try:
+                # 1. Hent leads med email, status=ny
+                with get_conn() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT id, name, company, email, city, website
+                        FROM contacts
+                        WHERE status = 'ny'
+                          AND email IS NOT NULL AND email != ''
+                          AND email NOT LIKE '%%,%%'
+                          AND company IS NOT NULL AND company != ''
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                    """, (OUTREACH_MAX_PER_DAY * 3,))  # hent 3x for å ha buffer etter Google-sjekk
+                    candidates = [dict(r) for r in cur.fetchall()]
+
+                print(f"[Outreach] {len(candidates)} kandidater funnet")
+
+                verified = []
+                for lead in candidates:
+                    if len(verified) >= OUTREACH_MAX_PER_DAY:
+                        break
+
+                    company = lead.get("company", "")
+                    city = lead.get("city", "")
+
+                    # 2. Google-søk for å verifisere at de ikke har nettside
+                    try:
+                        search_query = f"{company} {city}".strip()
+                        resp = _req.get(
+                            f"https://www.google.com/search?q={search_query}&num=5",
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Accept-Language": "no,nb,nn;q=0.9"
+                            },
+                            timeout=10
+                        )
+                        html = resp.text.lower()
+                        company_clean = company.lower().replace(" ", "").replace("-", "")
+
+                        has_website = (
+                            f"{company_clean}.no" in html or
+                            f"{company_clean}.com" in html or
+                            f"www.{company_clean}" in html
+                        )
+
+                        if has_website:
+                            skipped_count += 1
+                            print(f"[Outreach] SKIP {company} — har nettside")
+                            # Marker i CRM at de har nettside
+                            with get_conn() as conn:
+                                cur = conn.cursor()
+                                cur.execute("UPDATE contacts SET notes = COALESCE(notes,'') || %s WHERE id = %s",
+                                           (f" | Har nettside (sjekket {today})", lead["id"]))
+                                conn.commit()
+                            continue
+
+                        verified.append(lead)
+                        time.sleep(2)  # vær snill mot Google
+
+                    except Exception as e:
+                        print(f"[Outreach] Google-sjekk feilet for {company}: {e}")
+                        verified.append(lead)  # send likevel ved feil
+
+                print(f"[Outreach] {len(verified)} verifiserte leads (uten nettside)")
+
+                # 3. Send emails via Resend
+                for lead in verified:
+                    company = lead.get("company", lead.get("name", "din bedrift"))
+                    email = lead["email"]
+
+                    email_body = f"""Hei du,
+
+Jeg la merke til at {company} ikke har nettside ennå.
+
+Denne uken hjelper vi 5 bedrifter med en SEO-optimalisert nettside til en god pris — med EGET ADMIN-PANEL som er enkelt å bruke, der du kan oppdatere innhold, bilder og tekst selv. Du får se hjemmesiden din før du bestemmer deg — helt uforpliktende.
+
+I tillegg kan vi hjelpe deg med markedsføring, fange leads og konvertere besøkere til kjøpere. La oss ta en prat på det!
+
+Svar her så sender jeg et forslag.
+
+Remy
+StrategioAI
+www.strategioai.com
+
+---
+Ønsker du ikke flere meldinger? Svar "stopp" så fjerner vi deg umiddelbart."""
+
+                    try:
+                        resp = _req.post(
+                            "https://api.resend.com/emails",
+                            headers={
+                                "Authorization": f"Bearer {RESEND_API_KEY}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "from": "Remy <remy@strategio.site>",
+                                "to": [email],
+                                "subject": f"Nettside for {company}?",
+                                "text": email_body,
+                                "reply_to": "strategioai@strategioai.com"
+                            },
+                            timeout=10
+                        )
+
+                        if resp.status_code in (200, 201):
+                            sent_count += 1
+                            # Oppdater lead status i CRM
+                            with get_conn() as conn:
+                                cur = conn.cursor()
+                                cur.execute("UPDATE contacts SET status='kontaktet', notes=COALESCE(notes,'') || %s WHERE id=%s",
+                                           (f" | Outreach sendt {today}", lead["id"]))
+                                conn.commit()
+                            print(f"[Outreach] SENDT → {company} ({email})")
+                        else:
+                            errors.append(f"{company}: Resend {resp.status_code} - {resp.text[:100]}")
+                            print(f"[Outreach] FEIL → {company}: {resp.status_code}")
+
+                        time.sleep(1)  # rate limit
+
+                    except Exception as e:
+                        errors.append(f"{company}: {e}")
+                        print(f"[Outreach] Send-feil → {company}: {e}")
+
+            except Exception as e:
+                errors.append(f"DB/generell: {e}")
+                print(f"[Outreach] Generell feil: {e}")
+
+            # 4. Rapport til Telegram
+            try:
+                if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+                    msg = f"📧 <b>Outreach-rapport — {today}</b>\n\n"
+                    msg += f"✅ Sendt: <b>{sent_count}</b>\n"
+                    msg += f"⏭ Hoppet over (har nettside): <b>{skipped_count}</b>\n"
+                    if errors:
+                        msg += f"\n🚨 Feil ({len(errors)}):\n"
+                        for e in errors[:5]:
+                            msg += f"  • {e}\n"
+                    _req.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                        json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
+                        timeout=10
+                    )
+            except Exception as e:
+                print(f"[Outreach] Telegram-feil: {e}")
+
+            print(f"[Outreach] Ferdig — sendt {sent_count}, hoppet over {skipped_count}")
+
+        time.sleep(300)  # sjekk hvert 5. minutt
+
+
 @asynccontextmanager
 async def lifespan(app):
     t = threading.Thread(target=_stripe_auto_sync, daemon=True)
@@ -423,6 +594,12 @@ async def lifespan(app):
     t3 = threading.Thread(target=_daily_health_and_report, daemon=True)
     t3.start()
     print(f"[Daglig sjekk] Startet — kjører kl {DAILY_REPORT_HOUR}:00 UTC daglig")
+    if RESEND_API_KEY:
+        t4 = threading.Thread(target=_daily_outreach, daemon=True)
+        t4.start()
+        print(f"[Outreach] Startet — sender {OUTREACH_MAX_PER_DAY} emails daglig kl {OUTREACH_HOUR}:00 UTC (man-fre)")
+    else:
+        print("[Outreach] DEAKTIVERT — mangler RESEND_API_KEY")
     yield
 
 app = FastAPI(lifespan=lifespan)
