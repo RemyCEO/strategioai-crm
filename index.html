@@ -450,6 +450,7 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
     <div class="nav-label">Innhold</div>
     <div class="nav-item" onclick="showView('maler')"><span class="icon">📝</span> E-postmaler</div>
     <div class="nav-item" onclick="showView('ordrebekreftelser')"><span class="icon">📋</span> Ordrebekreftelser</div>
+    <div class="nav-item" onclick="showView('pitch')"><span class="icon">🎯</span> Pitch</div>
   </nav>
   <div style="padding:12px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--muted);line-height:1.9">
     <div style="font-weight:700;letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">Snarveier</div>
@@ -738,9 +739,9 @@ function showView(view) {
   currentView = view;
   location.hash = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','leadrapporter','produkter','maler','ordrebekreftelser'].indexOf(view);
+  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','leadrapporter','produkter','maler','ordrebekreftelser','pitch'].indexOf(view);
   if (navIdx >= 0) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', leadrapporter:'Lead-rapporter', produkter:'Produkter & Tjenester', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser' };
+  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', leadrapporter:'Lead-rapporter', produkter:'Produkter & Tjenester', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser', pitch:'Pitch' };
   document.getElementById('view-title').textContent = titles[view] || view;
   closePanel();
   render();
@@ -764,6 +765,7 @@ async function render() {
   else if (currentView === 'ordrebekreftelser') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('ordrebekreftelse')">+ Ny ordrebekreftelse</button>`; await renderOrdrebekreftelser(); }
   else if (currentView === 'leadrapporter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="triggerLeadScrape()">🔍 Kjør scraping nå</button>`; await renderLeadRapporter(); }
   else if (currentView === 'produkter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openSendTilbud()">📩 Send tilbud</button> <button class="btn btn-ghost btn-sm" onclick="openNewProduct()" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Nytt produkt</button>`; await renderProdukter(); }
+  else if (currentView === 'pitch') { actions.innerHTML=`<a href="/static/cold_call_pitch.pdf" target="_blank" class="btn btn-ghost btn-sm" style="color:#4ade80;border-color:rgba(34,197,94,.3)">↓ Last ned PDF</a>`; renderPitch(); }
 }
 
 // --- DASHBOARD ---
@@ -1916,6 +1918,78 @@ async function renderMaler() {
         <thead><tr><th style="width:70px">Bilde</th><th>Navn</th><th>Forhåndsvisning</th><th style="width:220px">Handlinger</th></tr></thead>
         <tbody>${templates.map(t => _malCard(t,'deleteMal','kopierMal')).join('')}</tbody>
       </table>
+    </div>`;
+}
+
+function renderPitch() {
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:700px;margin:0 auto">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+          <span style="font-size:32px">🎯</span>
+          <div>
+            <h2 style="font-size:20px;font-weight:700;color:var(--green)">Cold Call Pitch</h2>
+            <div style="color:var(--muted);font-size:13px">Nettside-salg · Make the Winning Move</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Åpning</h3>
+          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;font-style:italic;color:var(--text2);line-height:1.7;border-left:3px solid var(--green)">
+            "Hei, prater jeg med …? Remy fra Strategio her, jeg gjorde litt research på tjenestene dine online. Og da fant jeg noe informasjon, men ingen offisiell nettside for …"
+          </div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Det jeg tilbyr</h3>
+          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;font-style:italic;color:var(--text2);line-height:1.7;border-left:3px solid var(--green)">
+            "Det jeg gjør er å bygge nettsider som er laget for å rangere på Google. For dere ville det betydd én side som er optimalisert for de søkene som faktisk gir kunder. Målet er at når noen googler de tingene, så ser de dere, ikke konkurrentene."
+          </div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Egen admin – full kontroll</h3>
+          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7">
+            Det du også får i tillegg til den egen nettside er din egen admin slik at du kan endre og redigere nettsiden din selv så mye du vil i ettertid. Da slipper du ekstra kostnader gjennom et byrå som tar timesbetalt for sånt.
+          </div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Prising</h3>
+          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;font-style:italic;color:var(--text2);line-height:1.7;border-left:3px solid var(--yellow)">
+            "1990 NOK for å sette opp nettsiden, 890 NOK i måneden som dekker hosting, drift og at jeg løpende jobber med å forbedre rangeringen. Ingen skjulte kostnader, ingen bindingstid utover 12 måneder."
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px">
+            <div style="flex:1;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--green)">1 990,-</div>
+              <div style="font-size:11px;color:var(--muted)">Oppsett (engangspris)</div>
+            </div>
+            <div style="flex:1;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--green)">890,-</div>
+              <div style="font-size:11px;color:var(--muted)">/mnd (hosting + drift + SEO)</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Oppsummering før close</h3>
+          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7">
+            Da eier du din egen nettside som du kan endre og redigere som du vil, med egen admin, med mulighet for support fra StrategioAI om du skulle trenge.
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px">
+          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Close</h3>
+          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7;border-left:3px solid var(--green)">
+            <div style="font-style:italic;margin-bottom:8px">"Får jeg med deg på den?"</div>
+            <div style="font-style:italic">"Skal vi gå for den?"</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;color:var(--muted);font-size:12px">
+        StrategioAI · Remy Helgesen · +47 412 80 553 · strategioai.com
+      </div>
     </div>`;
 }
 
