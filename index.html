@@ -817,7 +817,7 @@ async function renderDashboard() {
     </div>`;
 
   content.innerHTML = `
-    <div class="stats-grid" style="grid-template-columns:repeat(6,1fr)">
+    <div class="stats-grid" style="grid-template-columns:repeat(7,1fr)">
       <div class="stat-card">
         <div class="label">Totale leads</div>
         <div class="value">${s.total_contacts}</div>
@@ -847,6 +847,11 @@ async function renderDashboard() {
         <div class="label">ARR</div>
         <div class="value green">${fmt(s.arr || 0)}</div>
         <div class="sub">Årlig revenue</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Utestående</div>
+        <div class="value" style="color:#f59e0b">${fmt(s.outstanding || 0)}</div>
+        <div class="sub">Åpne fakturaer</div>
       </div>
     </div>
     ${overdueCard ? `<div class="stats-grid" style="grid-template-columns:repeat(1,1fr);margin-bottom:24px">${overdueCard}</div>` : ''}

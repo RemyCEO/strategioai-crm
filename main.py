@@ -957,6 +957,18 @@ def health():
 
 # --- Dashboard ---
 
+def _get_outstanding():
+    """Hent total utestående beløp fra åpne Stripe-fakturaer."""
+    if not STRIPE_SECRET_KEY:
+        return 0.0
+    try:
+        total = 0.0
+        for inv in stripe.Invoice.list(status="open", limit=100).auto_paging_iter():
+            total += (inv.amount_remaining or 0) / 100
+        return total
+    except Exception:
+        return 0.0
+
 @app.get("/api/stats")
 def stats():
     today = datetime.now(timezone.utc).date().isoformat()
@@ -1011,6 +1023,7 @@ def stats():
         "won_value": won_value,
         "mrr": round(mrr, 2),
         "arr": round(mrr * 12, 2),
+        "outstanding": round(_get_outstanding(), 2),
         "by_status": status_count,
         "by_category": category_count,
         "total_deals": len(deals),
