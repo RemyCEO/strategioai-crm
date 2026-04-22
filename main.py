@@ -1010,6 +1010,7 @@ def stats():
         "pipeline_value": pipeline_value,
         "won_value": won_value,
         "mrr": round(mrr, 2),
+        "arr": round(mrr * 12, 2),
         "by_status": status_count,
         "by_category": category_count,
         "total_deals": len(deals),

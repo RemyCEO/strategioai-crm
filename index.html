@@ -817,7 +817,7 @@ async function renderDashboard() {
     </div>`;
 
   content.innerHTML = `
-    <div class="stats-grid" style="grid-template-columns:repeat(5,1fr)">
+    <div class="stats-grid" style="grid-template-columns:repeat(6,1fr)">
       <div class="stat-card">
         <div class="label">Totale leads</div>
         <div class="value">${s.total_contacts}</div>
@@ -842,6 +842,11 @@ async function renderDashboard() {
         <div class="label">MRR</div>
         <div class="value green">${fmt(s.mrr || 0)}</div>
         <div class="sub">Fra Stripe</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">ARR</div>
+        <div class="value green">${fmt(s.arr || 0)}</div>
+        <div class="sub">Årlig revenue</div>
       </div>
     </div>
     <div class="stats-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:24px">
