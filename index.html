@@ -42,6 +42,8 @@ body::before {
 @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 @keyframes pulse-glow { 0%,100%{opacity:.6} 50%{opacity:1} }
 @keyframes fade-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes skeleton-pulse { 0%{opacity:.06} 50%{opacity:.12} 100%{opacity:.06} }
+.skeleton-bar { background:rgba(34,197,94,.08); animation:skeleton-pulse 1.5s ease-in-out infinite; }
 
 /* ── SIDEBAR ────────────────────────────────── */
 .sidebar {
@@ -100,7 +102,7 @@ body::before {
 }
 .topbar h1 { font-size:18px; font-weight:800; letter-spacing:-.4px; background:linear-gradient(135deg,var(--text),var(--green-bright)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
 .topbar-actions { display:flex; gap:10px; }
-.content { flex:1; overflow-y:auto; padding:28px 32px; }
+.content { flex:1; overflow-y:auto; padding:28px 32px; scroll-behavior:smooth; }
 
 /* ── STATS ─────────────────────────────────── */
 .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px; }
@@ -126,7 +128,7 @@ body::before {
 .stat-card:hover { border-color:rgba(34,197,94,.2); transform:translateY(-3px); box-shadow:0 8px 32px rgba(0,0,0,.4), 0 0 0 1px rgba(34,197,94,0.05); }
 .stat-card:hover::after { opacity:1; }
 .stat-card .label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; font-weight:600; }
-.stat-card .value { font-size:28px; font-weight:800; color:var(--text); line-height:1; }
+.stat-card .value { font-size:32px; font-weight:800; color:var(--text); line-height:1; letter-spacing:-1px; }
 .stat-card .value.green { color:var(--green); text-shadow:0 0 30px rgba(34,197,94,0.3); }
 .stat-card .sub { font-size:11px; color:var(--muted); margin-top:8px; }
 
@@ -135,8 +137,10 @@ body::before {
 .table-header { padding:16px 20px; border-bottom:1px solid rgba(34,197,94,0.06); display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .table-header input {
   background:rgba(18,31,48,0.8); border:1px solid var(--border); color:var(--text);
-  border-radius:8px; padding:8px 14px; font-size:13px; width:260px; outline:none;
-  font-family:inherit; transition:all .2s;
+  border-radius:10px; padding:10px 16px 10px 36px; font-size:14px; width:340px; outline:none;
+  font-family:inherit; transition:all .25s;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%236b87a8' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:12px center;
 }
 .table-header input:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(34,197,94,.1), 0 0 20px rgba(34,197,94,0.05); }
 .table-header input::placeholder { color:var(--muted); }
@@ -155,7 +159,7 @@ thead th {
 tbody tr { border-bottom:1px solid rgba(26,46,68,0.3); cursor:pointer; transition:all .2s cubic-bezier(.4,0,.2,1); }
 tbody tr:last-child { border-bottom:none; }
 tbody tr:hover { background:rgba(34,197,94,0.04); transform:scale(1.002); }
-tbody td { padding:12px 14px; font-size:13px; color:var(--text2); }
+tbody td { padding:14px 14px; font-size:13px; color:var(--text2); line-height:1.4; }
 tbody td:first-child { color:var(--text); font-weight:500; }
 
 /* Avatar initials */
@@ -277,13 +281,13 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
 .deal-row .deal-meta { font-size:12px; color:var(--muted); margin-top:4px; display:flex; gap:12px; }
 
 /* ── PIPELINE ──────────────────────────────── */
-.pipeline { display:grid; grid-template-columns:repeat(6,1fr); gap:14px; overflow-x:auto; }
-.pipeline-col { background:rgba(13,24,37,0.7); border:1px solid rgba(34,197,94,0.06); border-radius:var(--radius); min-width:160px; backdrop-filter:blur(10px); }
+.pipeline { display:grid; grid-template-columns:repeat(9,1fr); gap:10px; overflow-x:auto; padding-bottom:8px; }
+.pipeline-col { background:rgba(13,24,37,0.7); border:1px solid rgba(34,197,94,0.06); border-radius:var(--radius); min-width:130px; backdrop-filter:blur(10px); }
 .pipeline-col-header { padding:14px 16px; border-bottom:1px solid rgba(34,197,94,0.06); }
 .pipeline-col-header .col-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.9px; }
 .pipeline-col-header .col-count { font-size:11px; color:var(--muted); margin-top:3px; }
 .pipeline-cards { padding:10px; min-height:80px; }
-.pipeline-card { background:rgba(18,31,48,0.7); border:1px solid rgba(26,46,68,0.4); border-radius:8px; padding:11px 13px; margin-bottom:8px; cursor:pointer; transition:all .2s cubic-bezier(.4,0,.2,1); }
+.pipeline-card { background:rgba(18,31,48,0.7); border:1px solid rgba(26,46,68,0.4); border-radius:8px; padding:9px 11px; margin-bottom:6px; cursor:pointer; transition:all .2s cubic-bezier(.4,0,.2,1); }
 .pipeline-card:hover { border-color:rgba(34,197,94,.25); background:rgba(34,197,94,0.04); transform:translateY(-1px); box-shadow:0 4px 16px rgba(0,0,0,.3); }
 .pipeline-card .p-name { font-size:12px; font-weight:600; }
 .pipeline-card .p-company { font-size:11px; color:var(--muted); }
@@ -800,10 +804,16 @@ function showView(view) {
 }
 
 async function render() {
+  const content = document.getElementById('content');
   const actions = document.getElementById('topbar-actions');
+  // Show loading skeleton immediately
+  if (!content.querySelector('.skeleton')) {
+    content.innerHTML = '<div class="skeleton" style="display:flex;flex-direction:column;gap:16px;padding:20px 0"><div class="skeleton-bar" style="height:80px;border-radius:12px"></div><div class="skeleton-bar" style="height:200px;border-radius:12px"></div></div>';
+  }
   if (currentView === 'dashboard') { actions.innerHTML=''; await renderDashboard(); }
   else if (currentView === 'contacts') {
     actions.innerHTML=`
+      <span style="font-size:11px;color:var(--muted);padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">Ctrl+K søk</span>
       <button class="btn btn-ghost btn-sm" onclick="exportCSV()" style="color:#4ade80;border-color:rgba(34,197,94,.3)">↓ CSV</button>
       <button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer fra Stripe</button>
       <button class="btn btn-green" onclick="openNewContact()">+ Ny lead</button>`;
@@ -823,8 +833,8 @@ async function render() {
 // --- DASHBOARD ---
 async function renderDashboard() {
   const [s, activities] = await Promise.all([
-    api('/api/stats'),
-    api('/api/activities/recent?limit=10')
+    api('/api/stats', 'GET', null, true),
+    api('/api/activities/recent?limit=10', 'GET', null, true)
   ]);
   const content = document.getElementById('content');
 
@@ -989,12 +999,12 @@ function _renderContactsPage() {
       <button class="btn btn-ghost btn-sm" onclick="contactFilter='';contactCategoryFilter='';contactSearch='';renderContacts(true)">Nullstill alle</button>
     </div>` : '';
 
-  document.getElementById('content').innerHTML = `
+  requestAnimationFrame(() => { document.getElementById('content').innerHTML = `
     ${catPills ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${catPills}</div>` : ''}
     ${activeFilters}
     <div class="table-wrap" style="margin-top:${catPills||activeFilters?'10px':'0'}">
       <div class="table-header">
-        <input id="search-input" placeholder="Søk navn, firma, e-post... (trykk /)" value="${contactSearch}" oninput="debouncedSearch(this.value)">
+        <input id="search-input" placeholder="Søk leads... (Ctrl+K)" value="${contactSearch}" oninput="debouncedSearch(this.value)">
         <div style="display:flex;gap:8px">
           <select onchange="contactFilter=this.value; renderContacts(true)">
             <option value="">Alle statuser</option>
@@ -1036,6 +1046,7 @@ function _renderContactsPage() {
       ${pagination}`}
     </div>`;
   _renderBulkBar();
+});
 }
 
 // --- DEALS ---
@@ -2739,13 +2750,23 @@ function navigateContact(dir) {
 }
 
 // --- UTILS ---
-async function api(url, method='GET', body=null) {
+const _apiCache = new Map();
+const _apiCacheTTL = 30000; // 30 sekunder
+
+async function api(url, method='GET', body=null, useCache=false) {
+  if (method === 'GET' && useCache) {
+    const cached = _apiCache.get(url);
+    if (cached && Date.now() - cached.ts < _apiCacheTTL) return cached.data;
+  }
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(API + url, opts);
   if (!r.ok) { console.error(await r.text()); return null; }
   if (method === 'DELETE') return null;
-  return r.json();
+  const data = await r.json();
+  if (method === 'GET') _apiCache.set(url, { data, ts: Date.now() });
+  if (method !== 'GET') _apiCache.clear(); // invalidate on mutations
+  return data;
 }
 
 function fmt(n) {
