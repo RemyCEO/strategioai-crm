@@ -849,14 +849,7 @@ async function renderDashboard() {
         <div class="sub">Årlig revenue</div>
       </div>
     </div>
-    <div class="stats-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:24px">
-      ${['ny','kontaktet','møte','tilbud','vunnet','tapt'].map(st => `
-        <div class="stat-card" style="padding:14px 16px;cursor:pointer" onclick="contactFilter='${st}';showView('contacts')" onmouseover="this.style.borderColor='rgba(34,197,94,.25)'" onmouseout="this.style.borderColor='var(--border)'">
-          <div class="label">${st}</div>
-          <div class="value" style="font-size:20px">${s.by_status?.[st] || 0}</div>
-        </div>`).join('')}
-      ${overdueCard}
-    </div>
+    ${overdueCard ? `<div class="stats-grid" style="grid-template-columns:repeat(1,1fr);margin-bottom:24px">${overdueCard}</div>` : ''}
     ${catRow}
     ${actFeed}`;
 }
