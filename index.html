@@ -177,6 +177,8 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
 .badge.møte { background:rgba(245,158,11,.15); color:#f59e0b; }
 .badge.tilbud { background:rgba(59,130,246,.15); color:#60a5fa; }
 .badge.vunnet,.badge.kunde { background:rgba(34,197,94,.15); color:#22c55e; }
+.badge.interessert { background:rgba(192,132,252,.15); color:#c084fc; }
+.badge.forhandling { background:rgba(251,146,60,.15); color:#fb923c; }
 .badge.tapt { background:rgba(239,68,68,.15); color:#ef4444; }
 .badge.stripe { background:rgba(99,102,241,.18); color:#a5b4fc; }
 .badge.lead { background:rgba(245,158,11,.15); color:#f59e0b; }
@@ -511,8 +513,16 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
       <div class="form-group"><label>Firma</label><input id="c-company" placeholder="Burger AS"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>E-post</label><input id="c-email" placeholder="ola@burger.no"></div>
-      <div class="form-group"><label>Telefon</label><input id="c-phone" placeholder="+47 900 00 000"></div>
+      <div class="form-group"><label>E-post</label><input id="c-email" placeholder="ola@burger.no" onblur="checkDuplicate()"></div>
+      <div class="form-group"><label>Telefon</label><input id="c-phone" placeholder="+47 900 00 000" onblur="checkDuplicate()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Nettside</label><input id="c-website" placeholder="www.burger.no"></div>
+      <div class="form-group"><label>Org.nr</label><input id="c-org_nr" placeholder="912 345 678" onblur="checkDuplicate()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Adresse</label><input id="c-address" placeholder="Storgata 1"></div>
+      <div class="form-group"><label>By</label><input id="c-city" placeholder="Oslo"></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Kilde</label>
@@ -522,6 +532,7 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
           <option value="nettside">Nettside</option>
           <option value="ref">Referanse</option>
           <option value="instagram">Instagram</option>
+          <option value="linkedin">LinkedIn</option>
           <option value="kald">Kald outreach</option>
         </select>
       </div>
@@ -529,32 +540,58 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
         <select id="c-status">
           <option value="ny">Ny</option>
           <option value="kontaktet">Kontaktet</option>
+          <option value="interessert">Interessert</option>
           <option value="møte">Møte booket</option>
           <option value="tilbud">Tilbud sendt</option>
+          <option value="forhandling">Forhandling</option>
+          <option value="vunnet">Vunnet</option>
           <option value="kunde">Kunde</option>
           <option value="tapt">Tapt</option>
         </select>
       </div>
     </div>
-    <div class="form-group"><label>Kategori</label>
-      <select id="c-category">
-        <option value="">— Ingen kategori —</option>
-        <option value="gym">🏋️ Gym / Trening</option>
-        <option value="restaurant">🍽️ Restaurant</option>
-        <option value="pizza">🍕 Pizza</option>
-        <option value="kafé">☕ Kafé / Bar</option>
-        <option value="transport">🚗 Transport</option>
-        <option value="frisør">💇 Frisør / Salong</option>
-        <option value="helse">🏥 Helse / Klinikk</option>
-        <option value="eiendom">🏠 Eiendom</option>
-        <option value="butikk">🛒 Butikk / Handel</option>
-        <option value="håndverk">🔨 Håndverk / Bygg</option>
-        <option value="konsulent">💼 Konsulent</option>
-        <option value="annet">📌 Annet</option>
-      </select>
+    <div class="form-row">
+      <div class="form-group"><label>Kategori</label>
+        <select id="c-category">
+          <option value="">— Ingen kategori —</option>
+          <option value="gym">🏋️ Gym / Trening</option>
+          <option value="restaurant">🍽️ Restaurant</option>
+          <option value="pizza">🍕 Pizza</option>
+          <option value="kafé">☕ Kafé / Bar</option>
+          <option value="transport">🚗 Transport</option>
+          <option value="frisør">💇 Frisør / Salong</option>
+          <option value="helse">🏥 Helse / Klinikk</option>
+          <option value="eiendom">🏠 Eiendom</option>
+          <option value="butikk">🛒 Butikk / Handel</option>
+          <option value="håndverk">🔨 Håndverk / Bygg</option>
+          <option value="konsulent">💼 Konsulent</option>
+          <option value="annet">📌 Annet</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Interesse</label>
+        <select id="c-interest">
+          <option value="">— Ikke satt —</option>
+          <option value="hot">🔥 Hot</option>
+          <option value="warm">🟡 Warm</option>
+          <option value="cold">❄️ Cold</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label>Tjeneste-interesse</label>
+      <div id="c-services" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer"><input type="checkbox" value="ai_resepsjonist" style="accent-color:var(--green)"> AI Resepsjonist</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer"><input type="checkbox" value="nettside" style="accent-color:var(--green)"> Nettside</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer"><input type="checkbox" value="lead_gen" style="accent-color:var(--green)"> Lead Gen</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer"><input type="checkbox" value="automatisering" style="accent-color:var(--green)"> Automatisering</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer"><input type="checkbox" value="google_ads" style="accent-color:var(--green)"> Google Ads</label>
+      </div>
     </div>
     <div class="form-group"><label>Notater</label><textarea id="c-notes" placeholder="Møtte på restaurant i Majorstuen..."></textarea></div>
     <div class="form-group"><label>Oppfølgingsdato</label><input id="c-followup" type="date"></div>
+    <div id="duplicate-warning" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;margin-bottom:8px">
+      <div style="color:#ef4444;font-weight:600;font-size:12px">⚠️ Mulig duplikat funnet:</div>
+      <div id="duplicate-list" style="font-size:12px;color:var(--text2);margin-top:4px"></div>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Avbryt</button>
       <button class="btn btn-green" onclick="saveContact()">Lagre</button>
@@ -708,22 +745,37 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
 <!-- BULK ACTION BAR -->
 <div id="bulk-bar" style="display:none;position:fixed;bottom:0;left:240px;right:0;background:linear-gradient(135deg,#0d1825,#091520);border-top:2px solid var(--green);padding:12px 28px;z-index:40;align-items:center;gap:12px;box-shadow:0 -4px 24px rgba(0,0,0,.5)">
   <span id="bulk-count" style="font-weight:700;color:var(--green);font-size:13px"></span>
-  <select id="bulk-cat-select" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 10px;font-size:13px;outline:none;font-family:inherit;flex:1;max-width:260px">
-    <option value="">— Fjern kategori —</option>
-    <option value="gym">🏋️ Gym / Trening</option>
+  <select id="bulk-cat-select" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 10px;font-size:13px;outline:none;font-family:inherit;max-width:200px">
+    <option value="">— Kategori —</option>
+    <option value="gym">🏋️ Gym</option>
     <option value="restaurant">🍽️ Restaurant</option>
     <option value="pizza">🍕 Pizza</option>
-    <option value="kafé">☕ Kafé / Bar</option>
+    <option value="kafé">☕ Kafé</option>
     <option value="transport">🚗 Transport</option>
-    <option value="frisør">💇 Frisør / Salong</option>
-    <option value="helse">🏥 Helse / Klinikk</option>
+    <option value="frisør">💇 Frisør</option>
+    <option value="helse">🏥 Helse</option>
     <option value="eiendom">🏠 Eiendom</option>
-    <option value="butikk">🛒 Butikk / Handel</option>
-    <option value="håndverk">🔨 Håndverk / Bygg</option>
+    <option value="butikk">🛒 Butikk</option>
+    <option value="håndverk">🔨 Håndverk</option>
     <option value="konsulent">💼 Konsulent</option>
     <option value="annet">📌 Annet</option>
   </select>
   <button class="btn btn-green btn-sm" onclick="applyBulkCategory()">Sett kategori</button>
+  <select id="bulk-status-select" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 10px;font-size:13px;outline:none;font-family:inherit;max-width:180px">
+    <option value="">— Status —</option>
+    <option value="ny">Ny</option>
+    <option value="kontaktet">Kontaktet</option>
+    <option value="interessert">Interessert</option>
+    <option value="møte">Møte</option>
+    <option value="tilbud">Tilbud</option>
+    <option value="forhandling">Forhandling</option>
+    <option value="vunnet">Vunnet</option>
+    <option value="kunde">Kunde</option>
+    <option value="tapt">Tapt</option>
+  </select>
+  <button class="btn btn-green btn-sm" onclick="applyBulkStatus()">Sett status</button>
+  <button class="btn btn-danger btn-sm" onclick="applyBulkDelete()">🗑️ Slett</button>
+  <button class="btn btn-ghost btn-sm" onclick="exportCSV()">📥 Eksporter</button>
   <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()">✕ Avbryt</button>
 </div>
 
@@ -946,7 +998,7 @@ function _renderContactsPage() {
         <div style="display:flex;gap:8px">
           <select onchange="contactFilter=this.value; renderContacts(true)">
             <option value="">Alle statuser</option>
-            ${['ny','kontaktet','møte','tilbud','kunde','tapt'].map(s=>`<option value="${s}" ${contactFilter===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+            ${STATUS_CYCLE.map(s=>`<option value="${s}" ${contactFilter===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
           </select>
           <span style="color:var(--muted);font-size:13px;padding:6px 0">${total} lead${total!==1?'s':''}</span>
         </div>
@@ -955,7 +1007,7 @@ function _renderContactsPage() {
       <table>
         <thead><tr>
           <th style="width:36px;padding-left:14px"><input type="checkbox" id="select-all-cb" onchange="toggleAllContacts(this.checked)" style="accent-color:var(--green);cursor:pointer"></th>
-          <th>Navn</th><th>Firma</th><th>Kategori</th><th>E-post</th><th>Telefon</th><th>Status</th><th>Oppfølging</th>
+          <th>Navn</th><th>Firma</th><th>Kategori</th><th>By</th><th>Interesse</th><th>Status</th><th>Oppfølging</th>
         </tr></thead>
         <tbody>
           ${page.map(c => {
@@ -972,8 +1024,8 @@ function _renderContactsPage() {
               <td><strong>${c.name}</strong></td>
               <td>${c.company || '—'}</td>
               <td>${c.category ? `<span class="cat-badge" style="cursor:pointer" onclick="event.stopPropagation();contactCategoryFilter='${c.category}';renderContacts(true)">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
-              <td onclick="event.stopPropagation()">${c.email ? `<a href="mailto:${c.email}" style="color:var(--text2);text-decoration:none" onmouseover="this.style.color='var(--green)'" onmouseout="this.style.color='var(--text2)'">${c.email}</a>` : '—'}</td>
-              <td onclick="event.stopPropagation()">${c.phone ? `<a href="tel:${c.phone}" style="color:var(--text2);text-decoration:none" onmouseover="this.style.color='var(--green)'" onmouseout="this.style.color='var(--text2)'">${c.phone}</a>` : '—'}</td>
+              <td style="font-size:12px;color:var(--muted)">${c.city || '—'}</td>
+              <td>${c.interest_level === 'hot' ? '<span style="color:#ef4444;font-weight:700">🔥</span>' : c.interest_level === 'warm' ? '<span style="color:#f59e0b">🟡</span>' : c.interest_level === 'cold' ? '<span style="color:#60a5fa">❄️</span>' : '<span style="color:var(--muted)">—</span>'}</td>
               <td onclick="event.stopPropagation()"><select class="badge ${c.status}" onchange="quickStatus('${c.id}',this.value)" style="border:none;outline:none;cursor:pointer;font-size:11px;font-weight:600;border-radius:20px;padding:3px 7px;font-family:inherit;background:inherit">
                 ${STATUS_CYCLE.map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${s}</option>`).join('')}
               </select></td>
@@ -1032,9 +1084,9 @@ async function renderDeals() {
 
 // --- PIPELINE ---
 async function renderPipeline() {
-  const stages = ['ny','kontaktet','møte','tilbud','kunde','tapt'];
-  const labels = { ny:'Ny', kontaktet:'Kontaktet', møte:'Møte booket', tilbud:'Tilbud sendt', kunde:'Kunde', tapt:'Tapt' };
-  const colors = { ny:'#94a3b8', kontaktet:'#818cf8', møte:'#f59e0b', tilbud:'#60a5fa', kunde:'#22c55e', tapt:'#ef4444' };
+  const stages = ['ny','kontaktet','interessert','møte','tilbud','forhandling','vunnet','kunde','tapt'];
+  const labels = { ny:'Ny', kontaktet:'Kontaktet', interessert:'Interessert', møte:'Møte booket', tilbud:'Tilbud sendt', forhandling:'Forhandling', vunnet:'Vunnet', kunde:'Kunde', tapt:'Tapt' };
+  const colors = { ny:'#94a3b8', kontaktet:'#818cf8', interessert:'#c084fc', møte:'#f59e0b', tilbud:'#60a5fa', forhandling:'#fb923c', vunnet:'#22c55e', kunde:'#22c55e', tapt:'#ef4444' };
 
   const results = await Promise.all(stages.map(s => api(`/api/contacts?status=${s}&limit=50`)));
   const grouped = {};
@@ -1083,19 +1135,29 @@ async function renderPanelTab(c) {
 
   let tabContent = '';
   if (panelTab === 'info') {
+    const interestBadge = c.interest_level === 'hot' ? '🔥 Hot' : c.interest_level === 'warm' ? '🟡 Warm' : c.interest_level === 'cold' ? '❄️ Cold' : '—';
+    const servicesList = (c.service_interest || '').split(',').filter(Boolean).map(s => {
+      const labels = {ai_resepsjonist:'AI Resepsjonist',nettside:'Nettside',lead_gen:'Lead Gen',automatisering:'Automatisering',google_ads:'Google Ads'};
+      return `<span style="background:var(--surface3);border-radius:4px;padding:2px 6px;font-size:11px">${labels[s]||s}</span>`;
+    }).join(' ');
     tabContent = `
       <div class="panel-section">
         <div class="info-grid">
           <div class="info-item"><div class="key">E-post</div><div class="val">${c.email ? `<a href="mailto:${c.email}" style="color:var(--green)">${c.email}</a>` : '—'}</div></div>
           <div class="info-item"><div class="key">Telefon</div><div class="val" style="display:flex;align-items:center;gap:8px">${c.phone ? `<a href="tel:${c.phone}" style="color:var(--green)">${c.phone}</a><button class="btn btn-green btn-sm" style="padding:3px 8px;font-size:11px;border-radius:6px" onclick="event.stopPropagation();startCall('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.id}')">📞 Ring</button>` : '—'}</div></div>
+          <div class="info-item"><div class="key">Nettside</div><div class="val">${c.website ? `<a href="${c.website.startsWith('http')?c.website:'https://'+c.website}" target="_blank" style="color:var(--green)">${c.website}</a>` : '—'}</div></div>
+          <div class="info-item"><div class="key">Org.nr</div><div class="val">${c.org_nr || '—'}</div></div>
+          <div class="info-item"><div class="key">Adresse</div><div class="val">${[c.address, c.city].filter(Boolean).join(', ') || '—'}</div></div>
           <div class="info-item"><div class="key">Kilde</div><div class="val">${c.source || '—'}</div></div>
           <div class="info-item"><div class="key">Status</div><div class="val"><span class="badge ${c.status}">${c.status}</span></div></div>
           <div class="info-item"><div class="key">Kategori</div><div class="val">${c.category ? `<span class="cat-badge">${CATEGORIES[c.category]||c.category}</span>` : '—'}</div></div>
+          <div class="info-item"><div class="key">Interesse</div><div class="val">${interestBadge}</div></div>
           <div class="info-item"><div class="key">⏰ Oppfølging</div><div class="val" style="display:flex;align-items:center;gap:8px">
             <span style="color:${c.followup_date && c.followup_date < new Date().toISOString().slice(0,10) ? '#ef4444' : 'var(--text)'}">${c.followup_date || '—'}</span>
             <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="quickFollowup('${id}','${c.followup_date||''}')">endre</button>
           </div></div>
         </div>
+        ${servicesList ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">${servicesList}</div>` : ''}
         ${c.notes ? `<div style="background:var(--surface2);border-radius:7px;padding:10px 12px;margin-top:10px;font-size:12px;color:var(--muted)">${c.notes}</div>` : ''}
       </div>
       <div class="panel-section">
@@ -1623,11 +1685,14 @@ async function stripeCreateInvoice() {
 function openNewContact() {
   editContactId = null;
   document.getElementById('modal-contact-title').textContent = 'Ny lead';
-  ['name','company','email','phone','notes'].forEach(f => document.getElementById('c-'+f).value = '');
+  ['name','company','email','phone','notes','website','org_nr','address','city'].forEach(f => document.getElementById('c-'+f).value = '');
   document.getElementById('c-source').value = 'manuell';
   document.getElementById('c-status').value = 'ny';
   document.getElementById('c-category').value = '';
+  document.getElementById('c-interest').value = '';
   document.getElementById('c-followup').value = '';
+  document.querySelectorAll('#c-services input').forEach(cb => cb.checked = false);
+  document.getElementById('duplicate-warning').style.display = 'none';
   showModal('modal-contact');
 }
 
@@ -1640,11 +1705,19 @@ async function openEditContact(id) {
   document.getElementById('c-company').value = c.company || '';
   document.getElementById('c-email').value = c.email || '';
   document.getElementById('c-phone').value = c.phone || '';
+  document.getElementById('c-website').value = c.website || '';
+  document.getElementById('c-org_nr').value = c.org_nr || '';
+  document.getElementById('c-address').value = c.address || '';
+  document.getElementById('c-city').value = c.city || '';
   document.getElementById('c-notes').value = c.notes || '';
   document.getElementById('c-source').value = c.source || 'manuell';
   document.getElementById('c-status').value = c.status || 'ny';
   document.getElementById('c-category').value = c.category || '';
+  document.getElementById('c-interest').value = c.interest_level || '';
   document.getElementById('c-followup').value = c.followup_date || '';
+  const services = (c.service_interest || '').split(',').filter(Boolean);
+  document.querySelectorAll('#c-services input').forEach(cb => cb.checked = services.includes(cb.value));
+  document.getElementById('duplicate-warning').style.display = 'none';
   showModal('modal-contact');
 }
 
@@ -1684,14 +1757,21 @@ function closeModal(e) {
 }
 
 async function saveContact() {
+  const services = [...document.querySelectorAll('#c-services input:checked')].map(cb => cb.value).join(',');
   const payload = {
     name: document.getElementById('c-name').value.trim(),
     company: document.getElementById('c-company').value.trim() || null,
     email: document.getElementById('c-email').value.trim() || null,
     phone: document.getElementById('c-phone').value.trim() || null,
+    website: document.getElementById('c-website').value.trim() || null,
+    org_nr: document.getElementById('c-org_nr').value.trim() || null,
+    address: document.getElementById('c-address').value.trim() || null,
+    city: document.getElementById('c-city').value.trim() || null,
     source: document.getElementById('c-source').value,
     status: document.getElementById('c-status').value,
     category: document.getElementById('c-category').value || null,
+    interest_level: document.getElementById('c-interest').value || null,
+    service_interest: services || null,
     notes: document.getElementById('c-notes').value.trim() || null,
     followup_date: document.getElementById('c-followup').value || null,
   };
@@ -2318,6 +2398,21 @@ async function applyBulkCategory() {
   if (res) { clearBulkSelection(); renderContacts(false); }
 }
 
+async function applyBulkStatus() {
+  if (_selectedContacts.size === 0) return;
+  const status = document.getElementById('bulk-status-select').value;
+  if (!status) { toast('Velg en status først', 'warn'); return; }
+  const res = await api('/api/contacts/bulk-status', 'POST', { ids: [..._selectedContacts], status });
+  if (res) { clearBulkSelection(); renderContacts(false); toast(`${res.updated} leads oppdatert til ${status}`); }
+}
+
+async function applyBulkDelete() {
+  if (_selectedContacts.size === 0) return;
+  if (!confirm(`Slette ${_selectedContacts.size} leads permanent?`)) return;
+  const res = await api('/api/contacts/bulk-delete', 'POST', { ids: [..._selectedContacts] });
+  if (res) { clearBulkSelection(); renderContacts(true); toast(`${res.deleted} leads slettet`); }
+}
+
 function clearBulkSelection() {
   _selectedContacts.clear();
   document.querySelectorAll('.contact-cb').forEach(cb => cb.checked = false);
@@ -2361,8 +2456,30 @@ function debouncedSearch(val) {
   _searchTimer = setTimeout(() => renderContacts(true), 280);
 }
 
+// --- DUPLICATE CHECK ---
+async function checkDuplicate() {
+  if (editContactId) return; // skip on edit
+  const phone = document.getElementById('c-phone').value.trim();
+  const email = document.getElementById('c-email').value.trim();
+  const org_nr = document.getElementById('c-org_nr').value.trim();
+  if (!phone && !email && !org_nr) return;
+  const params = new URLSearchParams();
+  if (phone) params.set('phone', phone);
+  if (email) params.set('email', email);
+  if (org_nr) params.set('org_nr', org_nr);
+  const res = await api(`/api/contacts/check-duplicate?${params}`);
+  const warn = document.getElementById('duplicate-warning');
+  const list = document.getElementById('duplicate-list');
+  if (res && res.duplicates && res.duplicates.length > 0) {
+    list.innerHTML = res.duplicates.map(d => `<div>• <strong>${d.name}</strong> ${d.company?'('+d.company+')':''} — ${d.email||d.phone||d.org_nr||''}</div>`).join('');
+    warn.style.display = 'block';
+  } else {
+    warn.style.display = 'none';
+  }
+}
+
 // --- INLINE STATUS ---
-const STATUS_CYCLE = ['ny','kontaktet','møte','tilbud','kunde','tapt'];
+const STATUS_CYCLE = ['ny','kontaktet','interessert','møte','tilbud','forhandling','vunnet','kunde','tapt'];
 async function quickStatus(id, newStatus) {
   const res = await api(`/api/contacts/${id}`, 'PATCH', { status: newStatus });
   if (res) {
@@ -2593,15 +2710,33 @@ async function sendTilbud() {
 // --- KEYBOARD SHORTCUTS ---
 document.addEventListener('keydown', e => {
   const tag = document.activeElement.tagName;
+  // Ctrl+K global search
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    showView('contacts');
+    setTimeout(() => document.getElementById('search-input')?.focus(), 100);
+    return;
+  }
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   const overlay = document.getElementById('modal-overlay');
   if (e.key === 'Escape') { closePanel(); if(overlay.classList.contains('open')) closeModal(); return; }
   if (e.key === '/' || e.key === 'f') { e.preventDefault(); showView('contacts'); setTimeout(()=>document.getElementById('search-input')?.focus(),100); return; }
   if (e.key === 'n' && currentView === 'contacts') { openNewContact(); return; }
   if (e.key === 'n' && currentView === 'deals') { document.querySelector('[onclick="openNewDeal"]')?.click(); return; }
+  if (e.key === 'e' && activePanelId) { openEditContact(activePanelId); return; }
+  if (e.key === 'j' && currentView === 'contacts') { navigateContact(1); return; }
+  if (e.key === 'k' && currentView === 'contacts') { navigateContact(-1); return; }
   const shortcuts = { '1':'dashboard','2':'contacts','3':'deals','4':'pipeline','5':'stripe','6':'gmail','7':'maler','8':'ordrebekreftelser' };
   if (shortcuts[e.key] && !e.ctrlKey && !e.metaKey && !e.altKey) showView(shortcuts[e.key]);
 });
+
+function navigateContact(dir) {
+  const idx = _allContacts.findIndex(c => c.id === activePanelId);
+  const next = idx + dir;
+  if (next >= 0 && next < _allContacts.length) {
+    openPanel(_allContacts[next].id);
+  }
+}
 
 // --- UTILS ---
 async function api(url, method='GET', body=null) {

@@ -792,6 +792,24 @@ def init_db():
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='followup_date') THEN
                     ALTER TABLE contacts ADD COLUMN followup_date TEXT;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='website') THEN
+                    ALTER TABLE contacts ADD COLUMN website TEXT;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='org_nr') THEN
+                    ALTER TABLE contacts ADD COLUMN org_nr TEXT;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='address') THEN
+                    ALTER TABLE contacts ADD COLUMN address TEXT;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='city') THEN
+                    ALTER TABLE contacts ADD COLUMN city TEXT;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='interest_level') THEN
+                    ALTER TABLE contacts ADD COLUMN interest_level TEXT;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='service_interest') THEN
+                    ALTER TABLE contacts ADD COLUMN service_interest TEXT;
+                END IF;
             END$$;
         """)
         # Lead-rapporter tabell
@@ -834,6 +852,11 @@ def init_db():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_outreach_resend_id ON outreach_emails(resend_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_outreach_contact_id ON outreach_emails(contact_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_city ON contacts(city);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_org_nr ON contacts(org_nr);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);")
         # Seed standardprodukter
         cur.execute("SELECT COUNT(*) as cnt FROM products")
         if cur.fetchone()["cnt"] == 0:
@@ -876,6 +899,12 @@ class Contact(BaseModel):
     category: str = None
     notes: str = None
     followup_date: str = None
+    website: str = None
+    org_nr: str = None
+    address: str = None
+    city: str = None
+    interest_level: str = None  # hot, warm, cold
+    service_interest: str = None  # comma-separated: ai_resepsjonist,nettside,lead_gen,automatisering,google_ads
 
 class ContactUpdate(BaseModel):
     name: str = None
@@ -887,6 +916,12 @@ class ContactUpdate(BaseModel):
     category: str = None
     notes: str = None
     followup_date: str = None
+    website: str = None
+    org_nr: str = None
+    address: str = None
+    city: str = None
+    interest_level: str = None  # hot, warm, cold
+    service_interest: str = None  # comma-separated: ai_resepsjonist,nettside,lead_gen,automatisering,google_ads
 
 class Deal(BaseModel):
     contact_id: str
@@ -1065,12 +1100,91 @@ def bulk_category(data: BulkCategoryUpdate):
         )
     return {"updated": len(data.ids)}
 
+class BulkStatusUpdate(BaseModel):
+    ids: list
+    status: str
+
+@app.post("/api/contacts/bulk-status")
+def bulk_status(data: BulkStatusUpdate):
+    if not data.ids:
+        raise HTTPException(400, "Ingen IDer")
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        placeholders = ','.join(['%s'] * len(data.ids))
+        cur.execute(
+            f"UPDATE contacts SET status=%s, updated_at=%s WHERE id IN ({placeholders})",
+            [data.status, now] + list(data.ids)
+        )
+    return {"updated": len(data.ids)}
+
+class BulkDelete(BaseModel):
+    ids: list
+
+@app.post("/api/contacts/bulk-delete")
+def bulk_delete(data: BulkDelete):
+    if not data.ids:
+        raise HTTPException(400, "Ingen IDer")
+    with get_conn() as conn:
+        cur = conn.cursor()
+        placeholders = ','.join(['%s'] * len(data.ids))
+        cur.execute(f"DELETE FROM contacts WHERE id IN ({placeholders})", data.ids)
+    return {"deleted": len(data.ids)}
+
+@app.get("/api/contacts/export")
+def export_contacts(status: str = None, category: str = None):
+    """Eksporter kontakter som CSV."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        wheres, vals = [], []
+        if status:
+            wheres.append("status=%s"); vals.append(status)
+        if category:
+            wheres.append("category=%s"); vals.append(category)
+        sql = "SELECT name, company, email, phone, website, org_nr, address, city, source, status, category, interest_level, service_interest, notes, followup_date, created_at FROM contacts"
+        if wheres:
+            sql += " WHERE " + " AND ".join(wheres)
+        sql += " ORDER BY created_at DESC"
+        cur.execute(sql, vals)
+        rows = cur.fetchall()
+    import csv, io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Navn", "Firma", "E-post", "Telefon", "Nettside", "Org.nr", "Adresse", "By", "Kilde", "Status", "Kategori", "Interesse", "Tjenester", "Notater", "Oppfølging", "Opprettet"])
+    for r in rows:
+        writer.writerow([r["name"], r["company"], r["email"], r["phone"], r["website"], r["org_nr"], r["address"], r["city"], r["source"], r["status"], r["category"], r["interest_level"], r["service_interest"], r["notes"], r["followup_date"], r["created_at"]])
+    csv_content = output.getvalue()
+    return Response(content=csv_content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=kontakter.csv"})
+
+@app.get("/api/contacts/check-duplicate")
+def check_duplicate(phone: str = None, org_nr: str = None, email: str = None):
+    """Sjekk om kontakt allerede finnes basert på telefon, org.nr eller email."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        conditions, vals = [], []
+        if phone and phone.strip():
+            conditions.append("phone=%s")
+            vals.append(phone.strip())
+        if org_nr and org_nr.strip():
+            conditions.append("org_nr=%s")
+            vals.append(org_nr.strip())
+        if email and email.strip():
+            conditions.append("LOWER(email)=LOWER(%s)")
+            vals.append(email.strip())
+        if not conditions:
+            return {"duplicates": []}
+        sql = f"SELECT id, name, company, email, phone, org_nr FROM contacts WHERE {' OR '.join(conditions)} LIMIT 5"
+        cur.execute(sql, vals)
+        rows = cur.fetchall()
+    return {"duplicates": [dict(r) for r in rows]}
+
 
 # --- Contacts ---
 
 @app.get("/api/contacts")
 def get_contacts(search: str = None, status: str = None, category: str = None,
-                 page: int = 0, limit: int = 50, minimal: str = None, has_email: str = None):
+                 page: int = 0, limit: int = 50, minimal: str = None, has_email: str = None,
+                 city: str = None, interest_level: str = None):
     with get_conn() as conn:
         cur = conn.cursor()
         wheres, vals = [], []
@@ -1080,10 +1194,14 @@ def get_contacts(search: str = None, status: str = None, category: str = None,
             wheres.append("category=%s"); vals.append(category)
         if has_email:
             wheres.append("email IS NOT NULL AND email != ''")
+        if city:
+            wheres.append("LOWER(city)=%s"); vals.append(city.lower())
+        if interest_level:
+            wheres.append("interest_level=%s"); vals.append(interest_level)
         if search:
-            wheres.append("(LOWER(name) LIKE %s OR LOWER(company) LIKE %s OR LOWER(email) LIKE %s)")
+            wheres.append("(LOWER(name) LIKE %s OR LOWER(company) LIKE %s OR LOWER(email) LIKE %s OR LOWER(phone) LIKE %s OR LOWER(org_nr) LIKE %s)")
             s = f"%{search.lower()}%"
-            vals.extend([s, s, s])
+            vals.extend([s, s, s, s, s])
         # Minimal mode: bare id, name, company, email (for dropdowns)
         if minimal:
             cols = "id, name, company, email"
@@ -1113,10 +1231,12 @@ def create_contact(c: Contact):
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, followup_date, created_at, updated_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, followup_date, website, org_nr, address, city, interest_level, service_interest, created_at, updated_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (new_id, d["name"], d["company"], d["email"], d["phone"],
-             d["source"], d["status"], d["category"], d["notes"], d.get("followup_date"), now, now)
+             d["source"], d["status"], d["category"], d["notes"], d.get("followup_date"),
+             d.get("website"), d.get("org_nr"), d.get("address"), d.get("city"),
+             d.get("interest_level"), d.get("service_interest"), now, now)
         )
         row = cur.fetchone()
     return dict(row)
@@ -1133,7 +1253,7 @@ def get_contact(id: str):
 
 @app.patch("/api/contacts/{id}")
 async def update_contact(id: str, c: ContactUpdate):
-    payload = {k: v for k, v in c.model_dump().items() if v is not None or k == "followup_date"}
+    payload = {k: v for k, v in c.model_dump().items() if v is not None or k in ("followup_date", "website", "org_nr", "address", "city", "interest_level", "service_interest", "notes")}
     if not payload:
         raise HTTPException(400, "No fields to update")
     now = datetime.now(timezone.utc).isoformat()
