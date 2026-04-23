@@ -2281,11 +2281,11 @@ async function saveNewPitch() {
       sections.push({ title: el.value, body: document.getElementById(`psec-body-${i}`).value, style: document.getElementById(`psec-style-${i}`).value });
     }
   });
-  await api('/api/pitches', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+  await api('/api/pitches', 'POST', {
     name: document.getElementById('pitch-name').value,
     description: document.getElementById('pitch-desc').value,
     sections
-  })});
+  });
   pitchSectionCount = 0;
   renderPitch();
 }
@@ -2325,18 +2325,18 @@ async function updatePitch(id) {
       sections.push({ title: el.value, body: document.getElementById(`psec-body-${i}`).value, style: document.getElementById(`psec-style-${i}`).value });
     }
   });
-  await api(`/api/pitches/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+  await api(`/api/pitches/${id}`, 'PUT', {
     name: document.getElementById('pitch-name').value,
     description: document.getElementById('pitch-desc').value,
     sections
-  })});
+  });
   pitchSectionCount = 0;
   renderPitch();
 }
 
 async function deletePitchConfirm(id) {
   if (!confirm('Slett denne pitchen?')) return;
-  await api(`/api/pitches/${id}`, { method: 'DELETE' });
+  await api(`/api/pitches/${id}`, 'DELETE');
   renderPitch();
 }
 
@@ -2360,12 +2360,12 @@ function openNewArgument(pitchId) {
 }
 
 async function saveNewArgument(pitchId) {
-  await api('/api/pitch-arguments', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+  await api('/api/pitch-arguments', 'POST', {
     pitch_id: pitchId,
     objection: document.getElementById('arg-objection').value,
     response: document.getElementById('arg-response').value,
     category: document.getElementById('arg-category').value
-  })});
+  });
   renderPitch();
 }
 
@@ -2393,18 +2393,18 @@ async function openEditArgument(argId, pitchId) {
 }
 
 async function updateArgument(argId, pitchId) {
-  await api(`/api/pitch-arguments/${argId}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+  await api(`/api/pitch-arguments/${argId}`, 'PUT', {
     pitch_id: pitchId,
     objection: document.getElementById('arg-objection').value,
     response: document.getElementById('arg-response').value,
     category: document.getElementById('arg-category').value
-  })});
+  });
   renderPitch();
 }
 
 async function deleteArgument(argId) {
   if (!confirm('Slett dette argumentet?')) return;
-  await api(`/api/pitch-arguments/${argId}`, { method: 'DELETE' });
+  await api(`/api/pitch-arguments/${argId}`, 'DELETE');
   renderPitch();
 }
 
