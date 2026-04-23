@@ -827,7 +827,7 @@ async function render() {
   else if (currentView === 'ordrebekreftelser') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('ordrebekreftelse')">+ Ny ordrebekreftelse</button>`; await renderOrdrebekreftelser(); }
   else if (currentView === 'leadrapporter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="triggerLeadScrape()">🔍 Kjør scraping nå</button>`; await renderLeadRapporter(); }
   else if (currentView === 'produkter') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openSendTilbud()">📩 Send tilbud</button> <button class="btn btn-ghost btn-sm" onclick="openNewProduct()" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Nytt produkt</button>`; await renderProdukter(); }
-  else if (currentView === 'pitch') { actions.innerHTML=`<a href="/static/cold_call_pitch.pdf" target="_blank" class="btn btn-ghost btn-sm" style="color:#4ade80;border-color:rgba(34,197,94,.3)">↓ Last ned PDF</a>`; renderPitch(); }
+  else if (currentView === 'pitch') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNewPitch()">+ Ny pitch</button> <a href="/static/cold_call_pitch.pdf" target="_blank" class="btn btn-ghost btn-sm" style="color:#4ade80;border-color:rgba(34,197,94,.3)">↓ Last ned PDF</a>`; await renderPitch(); }
 }
 
 // --- DASHBOARD ---
@@ -2052,76 +2052,252 @@ async function renderMaler() {
     </div>`;
 }
 
-function renderPitch() {
-  document.getElementById('content').innerHTML = `
-    <div style="max-width:700px;margin:0 auto">
+async function renderPitch() {
+  const pitches = await api('/api/pitches');
+  if (!pitches || pitches.length === 0) {
+    document.getElementById('content').innerHTML = `<div class="empty"><div class="emoji">🎯</div><p>Ingen pitches ennå.</p><button class="btn btn-green" onclick="openNewPitch()">+ Ny pitch</button></div>`;
+    return;
+  }
+  let html = '<div style="max-width:750px;margin:0 auto">';
+  for (const pitch of pitches) {
+    const sections = typeof pitch.sections === 'string' ? JSON.parse(pitch.sections) : pitch.sections;
+    const args = await api(`/api/pitches/${pitch.id}/arguments`);
+    html += `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;margin-bottom:20px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
           <span style="font-size:32px">🎯</span>
-          <div>
-            <h2 style="font-size:20px;font-weight:700;color:var(--green)">Cold Call Pitch</h2>
-            <div style="color:var(--muted);font-size:13px">Nettside-salg · Make the Winning Move</div>
+          <div style="flex:1">
+            <h2 style="font-size:20px;font-weight:700;color:var(--green)">${pitch.name}</h2>
+            <div style="color:var(--muted);font-size:13px">${pitch.description || ''}</div>
           </div>
-        </div>
-
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="openEditPitch('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3)">Rediger</button>
+            <button class="btn btn-ghost btn-sm" onclick="deletePitchConfirm('${pitch.id}')" style="color:var(--danger);border-color:rgba(239,68,68,.3)">Slett</button>
+          </div>
+        </div>`;
+    for (const sec of sections) {
+      const borderStyle = sec.style === 'quote' ? 'border-left:3px solid var(--green);font-style:italic;' : sec.style === 'pricing' ? 'border-left:3px solid var(--yellow);font-style:italic;' : '';
+      html += `
         <div style="margin-bottom:24px">
-          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Åpning</h3>
-          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;font-style:italic;color:var(--text2);line-height:1.7;border-left:3px solid var(--green)">
-            "Hei, prater jeg med …? Remy fra Strategio her, jeg gjorde litt research på tjenestene dine online. Og da fant jeg noe informasjon, men ingen offisiell nettside for …"
+          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">${sec.title}</h3>
+          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7;${borderStyle}">
+            ${sec.body.replace(/\n/g, '<br>')}
           </div>
-        </div>
+        </div>`;
+    }
+    // Argumenter/innvendinger
+    if (args && args.length > 0) {
+      const cats = {};
+      args.forEach(a => { if (!cats[a.category]) cats[a.category] = []; cats[a.category].push(a); });
+      const catLabels = {pris:'Pris',konkurrent:'Konkurrent',behov:'Behov',utsettelse:'Utsettelse',erfaring:'Erfaring',avvisning:'Avvisning',generell:'Generell'};
+      const catColors = {pris:'var(--yellow)',konkurrent:'var(--blue)',behov:'var(--purple)',utsettelse:'var(--muted)',erfaring:'#f97316',avvisning:'var(--danger)',generell:'var(--green)'};
+      html += `
+        <div style="margin-top:8px;padding-top:20px;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <h3 style="color:var(--green);font-size:15px;font-weight:700">Argumenter & Innvendinger</h3>
+            <button class="btn btn-ghost btn-sm" onclick="openNewArgument('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Nytt argument</button>
+          </div>`;
+      for (const [cat, items] of Object.entries(cats)) {
+        const color = catColors[cat] || 'var(--green)';
+        const label = catLabels[cat] || cat;
+        html += `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${color};margin-bottom:8px">${label}</div>`;
+        for (const a of items) {
+          html += `
+            <div style="background:var(--surface2);border-radius:var(--radius);padding:14px;margin-bottom:8px;border-left:3px solid ${color}">
+              <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+                <div style="flex:1">
+                  <div style="font-weight:600;color:var(--text);margin-bottom:6px">Kunde: "${a.objection}"</div>
+                  <div style="color:var(--green);line-height:1.6">Svar: "${a.response}"</div>
+                </div>
+                <div style="display:flex;gap:4px;flex-shrink:0">
+                  <button onclick="openEditArgument('${a.id}','${pitch.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px" title="Rediger">Rediger</button>
+                  <button onclick="deleteArgument('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px" title="Slett">Slett</button>
+                </div>
+              </div>
+            </div>`;
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    } else {
+      html += `
+        <div style="margin-top:8px;padding-top:20px;border-top:1px solid var(--border);text-align:center">
+          <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Ingen argumenter ennå</div>
+          <button class="btn btn-ghost btn-sm" onclick="openNewArgument('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Legg til argument</button>
+        </div>`;
+    }
+    html += '</div>';
+  }
+  html += `<div style="text-align:center;color:var(--muted);font-size:12px">StrategioAI · Remy Helgesen · +47 412 80 553 · strategioai.com</div></div>`;
+  document.getElementById('content').innerHTML = html;
+}
 
-        <div style="margin-bottom:24px">
-          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Det jeg tilbyr</h3>
-          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;font-style:italic;color:var(--text2);line-height:1.7;border-left:3px solid var(--green)">
-            "Det jeg gjør er å bygge nettsider som er laget for å rangere på Google. For dere ville det betydd én side som er optimalisert for de søkene som faktisk gir kunder. Målet er at når noen googler de tingene, så ser de dere, ikke konkurrentene."
-          </div>
-        </div>
-
-        <div style="margin-bottom:24px">
-          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Egen admin – full kontroll</h3>
-          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7">
-            Det du også får i tillegg til den egen nettside er din egen admin slik at du kan endre og redigere nettsiden din selv så mye du vil i ettertid. Da slipper du ekstra kostnader gjennom et byrå som tar timesbetalt for sånt.
-          </div>
-        </div>
-
-        <div style="margin-bottom:24px">
-          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Prising</h3>
-          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;font-style:italic;color:var(--text2);line-height:1.7;border-left:3px solid var(--yellow)">
-            "1990 NOK for å sette opp nettsiden, 890 NOK i måneden som dekker hosting, drift og at jeg løpende jobber med å forbedre rangeringen. Ingen skjulte kostnader, ingen bindingstid utover 12 måneder."
-          </div>
-          <div style="display:flex;gap:12px;margin-top:12px">
-            <div style="flex:1;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:var(--radius);padding:12px;text-align:center">
-              <div style="font-size:24px;font-weight:800;color:var(--green)">1 990,-</div>
-              <div style="font-size:11px;color:var(--muted)">Oppsett (engangspris)</div>
-            </div>
-            <div style="flex:1;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:var(--radius);padding:12px;text-align:center">
-              <div style="font-size:24px;font-weight:800;color:var(--green)">890,-</div>
-              <div style="font-size:11px;color:var(--muted)">/mnd (hosting + drift + SEO)</div>
-            </div>
-          </div>
-        </div>
-
-        <div style="margin-bottom:24px">
-          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Oppsummering før close</h3>
-          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7">
-            Da eier du din egen nettside som du kan endre og redigere som du vil, med egen admin, med mulighet for support fra StrategioAI om du skulle trenge.
-          </div>
-        </div>
-
-        <div style="margin-bottom:16px">
-          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">Close</h3>
-          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7;border-left:3px solid var(--green)">
-            <div style="font-style:italic;margin-bottom:8px">"Får jeg med deg på den?"</div>
-            <div style="font-style:italic">"Skal vi gå for den?"</div>
-          </div>
+// --- Pitch CRUD ---
+async function openNewPitch() {
+  document.getElementById('content').insertAdjacentHTML('afterbegin', `
+    <div id="pitch-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.remove()">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;width:600px;max-height:80vh;overflow-y:auto" onclick="event.stopPropagation()">
+        <h3 style="color:var(--green);margin-bottom:20px">Ny Pitch</h3>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Navn</span><input id="pitch-name" class="input" placeholder="F.eks. Cold Call Nettside"></label>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Beskrivelse</span><input id="pitch-desc" class="input" placeholder="F.eks. Telefonpitch for bedrifter uten nettside"></label>
+        <div id="pitch-sections-editor"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addPitchSectionField()" style="color:var(--green);border-color:rgba(34,197,94,.3);margin-bottom:16px">+ Legg til seksjon</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pitch-modal').remove()">Avbryt</button>
+          <button class="btn btn-green btn-sm" onclick="saveNewPitch()">Lagre</button>
         </div>
       </div>
+    </div>`);
+  addPitchSectionField();
+}
 
-      <div style="text-align:center;color:var(--muted);font-size:12px">
-        StrategioAI · Remy Helgesen · +47 412 80 553 · strategioai.com
+let pitchSectionCount = 0;
+function addPitchSectionField() {
+  const i = pitchSectionCount++;
+  document.getElementById('pitch-sections-editor').insertAdjacentHTML('beforeend', `
+    <div id="psec-${i}" style="background:var(--surface2);border-radius:var(--radius);padding:12px;margin-bottom:10px">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="psec-title-${i}" class="input" placeholder="Seksjons-tittel" style="flex:1">
+        <select id="psec-style-${i}" class="input" style="width:120px"><option value="quote">Sitat</option><option value="text">Tekst</option><option value="pricing">Prising</option></select>
+        <button onclick="document.getElementById('psec-${i}').remove()" style="background:none;border:none;color:var(--danger);cursor:pointer">Fjern</button>
       </div>
-    </div>`;
+      <textarea id="psec-body-${i}" class="input" rows="3" placeholder="Innhold..." style="resize:vertical"></textarea>
+    </div>`);
+}
+
+async function saveNewPitch() {
+  const sections = [];
+  document.querySelectorAll('[id^="psec-title-"]').forEach(el => {
+    const i = el.id.replace('psec-title-', '');
+    if (document.getElementById(`psec-${i}`)) {
+      sections.push({ title: el.value, body: document.getElementById(`psec-body-${i}`).value, style: document.getElementById(`psec-style-${i}`).value });
+    }
+  });
+  await api('/api/pitches', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    name: document.getElementById('pitch-name').value,
+    description: document.getElementById('pitch-desc').value,
+    sections
+  })});
+  pitchSectionCount = 0;
+  renderPitch();
+}
+
+async function openEditPitch(id) {
+  const pitch = await api(`/api/pitches/${id}`);
+  const sections = typeof pitch.sections === 'string' ? JSON.parse(pitch.sections) : pitch.sections;
+  pitchSectionCount = 0;
+  document.getElementById('content').insertAdjacentHTML('afterbegin', `
+    <div id="pitch-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.remove()">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;width:600px;max-height:80vh;overflow-y:auto" onclick="event.stopPropagation()">
+        <h3 style="color:var(--green);margin-bottom:20px">Rediger Pitch</h3>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Navn</span><input id="pitch-name" class="input" value="${pitch.name}"></label>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Beskrivelse</span><input id="pitch-desc" class="input" value="${pitch.description || ''}"></label>
+        <div id="pitch-sections-editor"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addPitchSectionField()" style="color:var(--green);border-color:rgba(34,197,94,.3);margin-bottom:16px">+ Legg til seksjon</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pitch-modal').remove()">Avbryt</button>
+          <button class="btn btn-green btn-sm" onclick="updatePitch('${id}')">Lagre</button>
+        </div>
+      </div>
+    </div>`);
+  sections.forEach(sec => {
+    addPitchSectionField();
+    const i = pitchSectionCount - 1;
+    document.getElementById(`psec-title-${i}`).value = sec.title;
+    document.getElementById(`psec-body-${i}`).value = sec.body;
+    document.getElementById(`psec-style-${i}`).value = sec.style || 'text';
+  });
+}
+
+async function updatePitch(id) {
+  const sections = [];
+  document.querySelectorAll('[id^="psec-title-"]').forEach(el => {
+    const i = el.id.replace('psec-title-', '');
+    if (document.getElementById(`psec-${i}`)) {
+      sections.push({ title: el.value, body: document.getElementById(`psec-body-${i}`).value, style: document.getElementById(`psec-style-${i}`).value });
+    }
+  });
+  await api(`/api/pitches/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    name: document.getElementById('pitch-name').value,
+    description: document.getElementById('pitch-desc').value,
+    sections
+  })});
+  pitchSectionCount = 0;
+  renderPitch();
+}
+
+async function deletePitchConfirm(id) {
+  if (!confirm('Slett denne pitchen?')) return;
+  await api(`/api/pitches/${id}`, { method: 'DELETE' });
+  renderPitch();
+}
+
+// --- Argument CRUD ---
+function openNewArgument(pitchId) {
+  document.getElementById('content').insertAdjacentHTML('afterbegin', `
+    <div id="arg-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.remove()">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;width:500px" onclick="event.stopPropagation()">
+        <h3 style="color:var(--green);margin-bottom:20px">Nytt Argument</h3>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Kunde sier (innvending)</span><textarea id="arg-objection" class="input" rows="2" placeholder='F.eks. "Vi har ikke budsjett"'></textarea></label>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Ditt svar</span><textarea id="arg-response" class="input" rows="3" placeholder="Ditt comeback..."></textarea></label>
+        <label style="display:block;margin-bottom:16px"><span style="font-size:12px;color:var(--muted)">Kategori</span>
+          <select id="arg-category" class="input"><option value="pris">Pris</option><option value="konkurrent">Konkurrent</option><option value="behov">Behov</option><option value="utsettelse">Utsettelse</option><option value="erfaring">Erfaring</option><option value="avvisning">Avvisning</option><option value="generell">Generell</option></select>
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('arg-modal').remove()">Avbryt</button>
+          <button class="btn btn-green btn-sm" onclick="saveNewArgument('${pitchId}')">Lagre</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function saveNewArgument(pitchId) {
+  await api('/api/pitch-arguments', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    pitch_id: pitchId,
+    objection: document.getElementById('arg-objection').value,
+    response: document.getElementById('arg-response').value,
+    category: document.getElementById('arg-category').value
+  })});
+  renderPitch();
+}
+
+async function openEditArgument(argId, pitchId) {
+  const args = await api(`/api/pitches/${pitchId}/arguments`);
+  const a = args.find(x => x.id === argId);
+  if (!a) return;
+  document.getElementById('content').insertAdjacentHTML('afterbegin', `
+    <div id="arg-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.remove()">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;width:500px" onclick="event.stopPropagation()">
+        <h3 style="color:var(--green);margin-bottom:20px">Rediger Argument</h3>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Kunde sier (innvending)</span><textarea id="arg-objection" class="input" rows="2">${a.objection}</textarea></label>
+        <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--muted)">Ditt svar</span><textarea id="arg-response" class="input" rows="3">${a.response}</textarea></label>
+        <label style="display:block;margin-bottom:16px"><span style="font-size:12px;color:var(--muted)">Kategori</span>
+          <select id="arg-category" class="input">
+            ${['pris','konkurrent','behov','utsettelse','erfaring','avvisning','generell'].map(c => `<option value="${c}" ${c===a.category?'selected':''}>${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
+          </select>
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('arg-modal').remove()">Avbryt</button>
+          <button class="btn btn-green btn-sm" onclick="updateArgument('${argId}','${pitchId}')">Lagre</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function updateArgument(argId, pitchId) {
+  await api(`/api/pitch-arguments/${argId}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    pitch_id: pitchId,
+    objection: document.getElementById('arg-objection').value,
+    response: document.getElementById('arg-response').value,
+    category: document.getElementById('arg-category').value
+  })});
+  renderPitch();
+}
+
+async function deleteArgument(argId) {
+  if (!confirm('Slett dette argumentet?')) return;
+  await api(`/api/pitch-arguments/${argId}`, { method: 'DELETE' });
+  renderPitch();
 }
 
 async function renderOrdrebekreftelser() {

@@ -857,6 +857,68 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_city ON contacts(city);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_org_nr ON contacts(org_nr);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);")
+        # Pitches tabell
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pitches (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                sections JSONB NOT NULL DEFAULT '[]',
+                created_at TEXT DEFAULT (now() AT TIME ZONE 'utc'),
+                updated_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
+            );
+        """)
+        # Pitch argumenter/innvendinger tabell
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pitch_arguments (
+                id TEXT PRIMARY KEY,
+                pitch_id TEXT REFERENCES pitches(id) ON DELETE CASCADE,
+                objection TEXT NOT NULL,
+                response TEXT NOT NULL,
+                category TEXT DEFAULT 'generell',
+                created_at TEXT DEFAULT (now() AT TIME ZONE 'utc')
+            );
+        """)
+        # Seed standard-pitches hvis tom
+        cur.execute("SELECT COUNT(*) as cnt FROM pitches")
+        if cur.fetchone()["cnt"] == 0:
+            cold_call_id = str(uuid.uuid4())
+            ferdig_web_id = str(uuid.uuid4())
+            cur.execute(
+                "INSERT INTO pitches (id, name, description, sections) VALUES (%s,%s,%s,%s)",
+                (cold_call_id, "Cold Call Pitch", "Nettside-salg · Make the Winning Move", json.dumps([
+                    {"title": "Åpning", "body": "Hei, prater jeg med …? Remy fra Strategio her, jeg gjorde litt research på tjenestene dine online. Og da fant jeg noe informasjon, men ingen offisiell nettside for …", "style": "quote"},
+                    {"title": "Det jeg tilbyr", "body": "Det jeg gjør er å bygge nettsider som er laget for å rangere på Google. For dere ville det betydd én side som er optimalisert for de søkene som faktisk gir kunder. Målet er at når noen googler de tingene, så ser de dere, ikke konkurrentene.", "style": "quote"},
+                    {"title": "Egen admin – full kontroll", "body": "Det du også får i tillegg til den egen nettside er din egen admin slik at du kan endre og redigere nettsiden din selv så mye du vil i ettertid. Da slipper du ekstra kostnader gjennom et byrå som tar timesbetalt for sånt.", "style": "text"},
+                    {"title": "Prising", "body": "1990 NOK for å sette opp nettsiden, 890 NOK i måneden som dekker hosting, drift og at jeg løpende jobber med å forbedre rangeringen. Ingen skjulte kostnader, ingen bindingstid utover 12 måneder.", "style": "pricing"},
+                    {"title": "Oppsummering før close", "body": "Da eier du din egen nettside som du kan endre og redigere som du vil, med egen admin, med mulighet for support fra StrategioAI om du skulle trenge.", "style": "text"},
+                    {"title": "Close", "body": "Får jeg med deg på den?\nSkal vi gå for den?", "style": "quote"}
+                ]))
+            )
+            cur.execute(
+                "INSERT INTO pitches (id, name, description, sections) VALUES (%s,%s,%s,%s)",
+                (ferdig_web_id, "Ferdig Webside Pitch", "SMS / Chat / DM · Kort og direkte", json.dumps([
+                    {"title": "Åpning", "body": "Hei, Remy fra Strategio her. Jeg prøvde å finne dere på nett, men fant ikke websiden. Har du 30 sekunder å låne bort?", "style": "quote"},
+                    {"title": "Hook – Ferdig webside", "body": "Jeg har faktisk allerede laget en ferdig webside til dere som du kan ta en titt på. Hvis du liker den får du den til en god pris. Hvis ikke – ingen forpliktelser, du har ikke tapt noe som helst.", "style": "quote"},
+                    {"title": "Close – Møtebooking", "body": "Har du tid til et kort Teams-møte i løpet av dagen?", "style": "quote"}
+                ]))
+            )
+            # Seed standard-argumenter
+            default_args = [
+                (cold_call_id, "Vi har ikke budsjett", "Jeg forstår. Men med 890 kr/mnd snakker vi under en lunsj i uka. Og nettsiden begynner å jobbe for deg fra dag én — den henter inn kunder mens du sover.", "pris"),
+                (cold_call_id, "Vi bruker Facebook/Instagram", "Det er bra! Men sosiale medier viser kun innhold til de som allerede følger dere. En nettside fanger folk som aktivt søker etter tjenestene deres — det er en helt annen type kunde.", "konkurrent"),
+                (cold_call_id, "Vi har nok kunder", "Flott å høre! Men hva om en nettside kunne gitt deg bedre kunder? De som googler og finner deg er ofte mer kjøpeklare enn de som kommer via anbefalinger.", "behov"),
+                (cold_call_id, "Jeg må tenke på det", "Absolutt, ingen hastverk. Men kan jeg sende deg en link til en demo-side jeg har laget for dere? Da har du noe konkret å vurdere. Tar 10 sekunder å se på.", "utsettelse"),
+                (cold_call_id, "Vi prøvde nettside før, fungerte ikke", "Det hører jeg ofte. Problemet er vanligvis at siden ikke var optimalisert for Google-søk. Min tilnærming er å bygge siden rundt de søkeordene kundene dine faktisk bruker.", "erfaring"),
+                (ferdig_web_id, "Ikke interessert", "Helt greit! Men sjekk lenken først — den er allerede laget. Tar 10 sekunder. Ingen forpliktelser uansett.", "avvisning"),
+                (ferdig_web_id, "Hva koster det?", "Nettsiden koster 1990,- i oppsett og 890,- i måneden for hosting og drift. Men ta en titt først — kanskje du liker den, kanskje ikke.", "pris"),
+                (ferdig_web_id, "Send meg info på mail", "Selvfølgelig! Hva er e-postadressen? Jeg sender lenken til nettsiden med en gang.", "utsettelse"),
+            ]
+            for pitch_id, objection, response, cat in default_args:
+                cur.execute(
+                    "INSERT INTO pitch_arguments (id, pitch_id, objection, response, category) VALUES (%s,%s,%s,%s,%s)",
+                    (str(uuid.uuid4()), pitch_id, objection, response, cat)
+                )
         # Seed standardprodukter
         cur.execute("SELECT COUNT(*) as cnt FROM products")
         if cur.fetchone()["cnt"] == 0:
@@ -954,6 +1016,17 @@ class EmailTemplate(BaseModel):
     body: str
     category: str = "email"
     image_filename: str = None
+
+class Pitch(BaseModel):
+    name: str
+    description: str = None
+    sections: list = []
+
+class PitchArgument(BaseModel):
+    pitch_id: str
+    objection: str
+    response: str
+    category: str = "generell"
 
 class Product(BaseModel):
     name: str
@@ -2337,6 +2410,104 @@ def delete_email_template(id: str):
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("DELETE FROM email_templates WHERE id=%s", (id,))
+    return {"ok": True}
+
+
+# --- Pitches ---
+
+@app.get("/api/pitches")
+def get_pitches():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM pitches ORDER BY created_at ASC")
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+@app.get("/api/pitches/{id}")
+def get_pitch(id: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM pitches WHERE id=%s", (id,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Pitch not found")
+    return dict(row)
+
+@app.post("/api/pitches")
+def create_pitch(p: Pitch):
+    new_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO pitches (id, name, description, sections, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
+            (new_id, p.name, p.description, json.dumps(p.sections), now, now)
+        )
+        row = cur.fetchone()
+    return dict(row)
+
+@app.put("/api/pitches/{id}")
+def update_pitch(id: str, p: Pitch):
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE pitches SET name=%s, description=%s, sections=%s, updated_at=%s WHERE id=%s RETURNING *",
+            (p.name, p.description, json.dumps(p.sections), now, id)
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Pitch not found")
+    return dict(row)
+
+@app.delete("/api/pitches/{id}")
+def delete_pitch(id: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM pitches WHERE id=%s", (id,))
+    return {"ok": True}
+
+# --- Pitch Arguments ---
+
+@app.get("/api/pitches/{pitch_id}/arguments")
+def get_pitch_arguments(pitch_id: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM pitch_arguments WHERE pitch_id=%s ORDER BY category, created_at ASC", (pitch_id,))
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/api/pitch-arguments")
+def create_pitch_argument(a: PitchArgument):
+    new_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO pitch_arguments (id, pitch_id, objection, response, category, created_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
+            (new_id, a.pitch_id, a.objection, a.response, a.category, now)
+        )
+        row = cur.fetchone()
+    return dict(row)
+
+@app.put("/api/pitch-arguments/{id}")
+def update_pitch_argument(id: str, a: PitchArgument):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE pitch_arguments SET objection=%s, response=%s, category=%s WHERE id=%s RETURNING *",
+            (a.objection, a.response, a.category, id)
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Argument not found")
+    return dict(row)
+
+@app.delete("/api/pitch-arguments/{id}")
+def delete_pitch_argument(id: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM pitch_arguments WHERE id=%s", (id,))
     return {"ok": True}
 
 
