@@ -2052,84 +2052,192 @@ async function renderMaler() {
     </div>`;
 }
 
+// Pitch data cache for expand modals
+let _pitchCache = [];
+
 async function renderPitch() {
   const pitches = await api('/api/pitches');
   if (!pitches || pitches.length === 0) {
     document.getElementById('content').innerHTML = `<div class="empty"><div class="emoji">🎯</div><p>Ingen pitches ennå.</p><button class="btn btn-green" onclick="openNewPitch()">+ Ny pitch</button></div>`;
     return;
   }
-  let html = '<div style="max-width:750px;margin:0 auto">';
-  for (const pitch of pitches) {
+  // Fetch all arguments in parallel
+  const allArgs = await Promise.all(pitches.map(p => api(`/api/pitches/${p.id}/arguments`)));
+  _pitchCache = pitches.map((p, i) => ({ ...p, args: allArgs[i] || [] }));
+
+  const catLabels = {pris:'Pris',konkurrent:'Konkurrent',behov:'Behov',utsettelse:'Utsettelse',erfaring:'Erfaring',avvisning:'Avvisning',generell:'Generell'};
+  const catColors = {pris:'var(--yellow)',konkurrent:'var(--blue)',behov:'var(--purple)',utsettelse:'var(--muted)',erfaring:'#f97316',avvisning:'var(--danger)',generell:'var(--green)'};
+
+  // --- Pitch cards grid ---
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:24px">';
+  for (let idx = 0; idx < pitches.length; idx++) {
+    const pitch = pitches[idx];
     const sections = typeof pitch.sections === 'string' ? JSON.parse(pitch.sections) : pitch.sections;
-    const args = await api(`/api/pitches/${pitch.id}/arguments`);
     html += `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
-          <span style="font-size:32px">🎯</span>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;cursor:pointer;transition:border-color .2s,box-shadow .2s"
+           onmouseenter="this.style.borderColor='rgba(34,197,94,.5)';this.style.boxShadow='0 0 20px rgba(34,197,94,.1)'"
+           onmouseleave="this.style.borderColor='';this.style.boxShadow=''"
+           onclick="expandPitch(${idx})">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <span style="font-size:28px">🎯</span>
           <div style="flex:1">
-            <h2 style="font-size:20px;font-weight:700;color:var(--green)">${pitch.name}</h2>
-            <div style="color:var(--muted);font-size:13px">${pitch.description || ''}</div>
-          </div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-ghost btn-sm" onclick="openEditPitch('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3)">Rediger</button>
-            <button class="btn btn-ghost btn-sm" onclick="deletePitchConfirm('${pitch.id}')" style="color:var(--danger);border-color:rgba(239,68,68,.3)">Slett</button>
+            <h2 style="font-size:17px;font-weight:700;color:var(--green)">${pitch.name}</h2>
+            <div style="color:var(--muted);font-size:12px">${pitch.description || ''}</div>
           </div>
         </div>`;
-    for (const sec of sections) {
+    // Show first 2 sections as preview
+    const preview = sections.slice(0, 2);
+    for (const sec of preview) {
       const borderStyle = sec.style === 'quote' ? 'border-left:3px solid var(--green);font-style:italic;' : sec.style === 'pricing' ? 'border-left:3px solid var(--yellow);font-style:italic;' : '';
       html += `
-        <div style="margin-bottom:24px">
-          <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">${sec.title}</h3>
-          <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7;${borderStyle}">
-            ${sec.body.replace(/\n/g, '<br>')}
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:4px">${sec.title}</div>
+          <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;color:var(--text2);font-size:13px;line-height:1.5;${borderStyle};overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">
+            ${sec.body.replace(/\n/g, ' ')}
           </div>
         </div>`;
     }
-    // Argumenter/innvendinger
-    if (args && args.length > 0) {
-      const cats = {};
-      args.forEach(a => { if (!cats[a.category]) cats[a.category] = []; cats[a.category].push(a); });
-      const catLabels = {pris:'Pris',konkurrent:'Konkurrent',behov:'Behov',utsettelse:'Utsettelse',erfaring:'Erfaring',avvisning:'Avvisning',generell:'Generell'};
-      const catColors = {pris:'var(--yellow)',konkurrent:'var(--blue)',behov:'var(--purple)',utsettelse:'var(--muted)',erfaring:'#f97316',avvisning:'var(--danger)',generell:'var(--green)'};
+    if (sections.length > 2) {
+      html += `<div style="color:var(--muted);font-size:11px;text-align:center;margin-top:4px">+ ${sections.length - 2} flere seksjoner</div>`;
+    }
+    html += `
+        <div style="display:flex;gap:6px;margin-top:12px;justify-content:flex-end" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-sm" onclick="openEditPitch('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3);font-size:11px;padding:4px 10px">Rediger</button>
+          <button class="btn btn-ghost btn-sm" onclick="deletePitchConfirm('${pitch.id}')" style="color:var(--danger);border-color:rgba(239,68,68,.3);font-size:11px;padding:4px 10px">Slett</button>
+        </div>
+      </div>`;
+  }
+  html += '</div>';
+
+  // --- Arguments grid ---
+  // Collect all arguments grouped by pitch
+  const pitchesWithArgs = _pitchCache.filter(p => p.args.length > 0);
+  if (pitchesWithArgs.length > 0) {
+    html += `<div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:16px;font-weight:700;color:var(--text)">Argumenter & Innvendinger</h3>
+    </div>`;
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:24px">';
+    for (let idx = 0; idx < _pitchCache.length; idx++) {
+      const pitch = _pitchCache[idx];
+      const args = pitch.args;
+      if (!args || args.length === 0) continue;
       html += `
-        <div style="margin-top:8px;padding-top:20px;border-top:1px solid var(--border)">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-            <h3 style="color:var(--green);font-size:15px;font-weight:700">Argumenter & Innvendinger</h3>
-            <button class="btn btn-ghost btn-sm" onclick="openNewArgument('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Nytt argument</button>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;cursor:pointer;transition:border-color .2s,box-shadow .2s"
+             onmouseenter="this.style.borderColor='rgba(34,197,94,.5)';this.style.boxShadow='0 0 20px rgba(34,197,94,.1)'"
+             onmouseleave="this.style.borderColor='';this.style.boxShadow=''"
+             onclick="expandArguments(${idx})">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <span style="font-size:24px">🛡</span>
+            <div style="flex:1">
+              <h3 style="font-size:15px;font-weight:700;color:var(--green)">${pitch.name}</h3>
+              <div style="color:var(--muted);font-size:12px">${args.length} argument${args.length > 1 ? 'er' : ''}</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openNewArgument('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3);font-size:11px;padding:4px 10px">+ Nytt</button>
           </div>`;
-      for (const [cat, items] of Object.entries(cats)) {
-        const color = catColors[cat] || 'var(--green)';
-        const label = catLabels[cat] || cat;
-        html += `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${color};margin-bottom:8px">${label}</div>`;
-        for (const a of items) {
-          html += `
-            <div style="background:var(--surface2);border-radius:var(--radius);padding:14px;margin-bottom:8px;border-left:3px solid ${color}">
-              <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
-                <div style="flex:1">
-                  <div style="font-weight:600;color:var(--text);margin-bottom:6px">Kunde: "${a.objection}"</div>
-                  <div style="color:var(--green);line-height:1.6">Svar: "${a.response}"</div>
-                </div>
-                <div style="display:flex;gap:4px;flex-shrink:0">
-                  <button onclick="openEditArgument('${a.id}','${pitch.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px" title="Rediger">Rediger</button>
-                  <button onclick="deleteArgument('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px" title="Slett">Slett</button>
-                </div>
-              </div>
-            </div>`;
-        }
-        html += '</div>';
+      // Preview first 3 arguments
+      const preview = args.slice(0, 3);
+      for (const a of preview) {
+        const color = catColors[a.category] || 'var(--green)';
+        html += `
+          <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:8px;border-left:3px solid ${color}">
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">"${a.objection}"</div>
+            <div style="font-size:12px;color:var(--green);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">"${a.response}"</div>
+          </div>`;
+      }
+      if (args.length > 3) {
+        html += `<div style="color:var(--muted);font-size:11px;text-align:center;margin-top:4px">+ ${args.length - 3} flere argumenter</div>`;
       }
       html += '</div>';
-    } else {
-      html += `
-        <div style="margin-top:8px;padding-top:20px;border-top:1px solid var(--border);text-align:center">
-          <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Ingen argumenter ennå</div>
-          <button class="btn btn-ghost btn-sm" onclick="openNewArgument('${pitch.id}')" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Legg til argument</button>
-        </div>`;
     }
     html += '</div>';
   }
-  html += `<div style="text-align:center;color:var(--muted);font-size:12px">StrategioAI · Remy Helgesen · +47 412 80 553 · strategioai.com</div></div>`;
+
+  html += `<div style="text-align:center;color:var(--muted);font-size:12px;margin-top:8px">StrategioAI · Remy Helgesen · +47 412 80 553 · strategioai.com</div>`;
   document.getElementById('content').innerHTML = html;
+}
+
+// --- Expand pitch fullscreen modal ---
+function expandPitch(idx) {
+  const pitch = _pitchCache[idx];
+  const sections = typeof pitch.sections === 'string' ? JSON.parse(pitch.sections) : pitch.sections;
+  let secHtml = '';
+  for (const sec of sections) {
+    const borderStyle = sec.style === 'quote' ? 'border-left:3px solid var(--green);font-style:italic;' : sec.style === 'pricing' ? 'border-left:3px solid var(--yellow);font-style:italic;' : '';
+    secHtml += `
+      <div style="margin-bottom:24px">
+        <h3 style="color:var(--green);font-size:15px;font-weight:700;margin-bottom:8px">${sec.title}</h3>
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;color:var(--text2);line-height:1.7;${borderStyle}">
+          ${sec.body.replace(/\n/g, '<br>')}
+        </div>
+      </div>`;
+  }
+  const modal = document.createElement('div');
+  modal.id = 'pitch-expand';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;animation:fade-in .2s ease';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);padding:36px;width:700px;max-height:85vh;overflow-y:auto" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
+        <span style="font-size:32px">🎯</span>
+        <div style="flex:1">
+          <h2 style="font-size:22px;font-weight:700;color:var(--green)">${pitch.name}</h2>
+          <div style="color:var(--muted);font-size:13px">${pitch.description || ''}</div>
+        </div>
+        <button onclick="this.closest('#pitch-expand').remove()" style="background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;padding:4px 8px">✕</button>
+      </div>
+      ${secHtml}
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+// --- Expand arguments fullscreen modal ---
+function expandArguments(idx) {
+  const pitch = _pitchCache[idx];
+  const args = pitch.args;
+  const catLabels = {pris:'Pris',konkurrent:'Konkurrent',behov:'Behov',utsettelse:'Utsettelse',erfaring:'Erfaring',avvisning:'Avvisning',generell:'Generell'};
+  const catColors = {pris:'var(--yellow)',konkurrent:'var(--blue)',behov:'var(--purple)',utsettelse:'var(--muted)',erfaring:'#f97316',avvisning:'var(--danger)',generell:'var(--green)'};
+  const cats = {};
+  args.forEach(a => { if (!cats[a.category]) cats[a.category] = []; cats[a.category].push(a); });
+  let argHtml = '';
+  for (const [cat, items] of Object.entries(cats)) {
+    const color = catColors[cat] || 'var(--green)';
+    const label = catLabels[cat] || cat;
+    argHtml += `<div style="margin-bottom:20px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${color};margin-bottom:10px">${label}</div>`;
+    for (const a of items) {
+      argHtml += `
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:14px;margin-bottom:8px;border-left:3px solid ${color}">
+          <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+            <div style="flex:1">
+              <div style="font-weight:600;color:var(--text);margin-bottom:6px">Kunde: "${a.objection}"</div>
+              <div style="color:var(--green);line-height:1.6">Svar: "${a.response}"</div>
+            </div>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              <button onclick="this.closest('#args-expand').remove();openEditArgument('${a.id}','${pitch.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px">Rediger</button>
+              <button onclick="this.closest('#args-expand').remove();deleteArgument('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px">Slett</button>
+            </div>
+          </div>
+        </div>`;
+    }
+    argHtml += '</div>';
+  }
+  const modal = document.createElement('div');
+  modal.id = 'args-expand';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;animation:fade-in .2s ease';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);padding:36px;width:700px;max-height:85vh;overflow-y:auto" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
+        <span style="font-size:28px">🛡</span>
+        <div style="flex:1">
+          <h2 style="font-size:20px;font-weight:700;color:var(--green)">${pitch.name} — Argumenter</h2>
+          <div style="color:var(--muted);font-size:13px">${args.length} innvendinger med svar</div>
+        </div>
+        <button onclick="event.stopPropagation();this.closest('#args-expand').remove();openNewArgument('${pitch.id}')" class="btn btn-ghost btn-sm" style="color:var(--green);border-color:rgba(34,197,94,.3)">+ Nytt</button>
+        <button onclick="this.closest('#args-expand').remove()" style="background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;padding:4px 8px">✕</button>
+      </div>
+      ${argHtml}
+    </div>`;
+  document.body.appendChild(modal);
 }
 
 // --- Pitch CRUD ---
