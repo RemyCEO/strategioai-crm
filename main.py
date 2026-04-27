@@ -810,6 +810,9 @@ def init_db():
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='service_interest') THEN
                     ALTER TABLE contacts ADD COLUMN service_interest TEXT;
                 END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='call_queue') THEN
+                    ALTER TABLE contacts ADD COLUMN call_queue BOOLEAN DEFAULT false;
+                END IF;
             END$$;
         """)
         # Lead-rapporter tabell
@@ -967,6 +970,7 @@ class Contact(BaseModel):
     city: str = None
     interest_level: str = None  # hot, warm, cold
     service_interest: str = None  # comma-separated: ai_resepsjonist,nettside,lead_gen,automatisering,google_ads
+    call_queue: bool = False
 
 class ContactUpdate(BaseModel):
     name: str = None
@@ -984,6 +988,7 @@ class ContactUpdate(BaseModel):
     city: str = None
     interest_level: str = None  # hot, warm, cold
     service_interest: str = None  # comma-separated: ai_resepsjonist,nettside,lead_gen,automatisering,google_ads
+    call_queue: bool = None
 
 class Deal(BaseModel):
     contact_id: str
@@ -1083,7 +1088,7 @@ def stats():
     try:
         with get_conn() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT status, category, followup_date FROM contacts")
+            cur.execute("SELECT status, category, followup_date, call_queue FROM contacts")
             contacts = cur.fetchall()
             cur.execute("SELECT status, value, type, recurring_amount FROM deals")
             deals = cur.fetchall()
@@ -1113,6 +1118,7 @@ def stats():
     status_count = {}
     category_count = {}
     overdue_followups = 0
+    call_queue_count = 0
     for c in contacts:
         s = c["status"]
         status_count[s] = status_count.get(s, 0) + 1
@@ -1124,6 +1130,8 @@ def stats():
             fd_str = str(fd)[:10] if not isinstance(fd, str) else fd
             if fd_str <= today and s not in ("vunnet", "tapt"):
                 overdue_followups += 1
+        if c.get("call_queue"):
+            call_queue_count += 1
 
     return {
         "total_contacts": len(contacts),
@@ -1137,6 +1145,7 @@ def stats():
         "total_deals": len(deals),
         "new_this_week": new_this_week,
         "overdue_followups": overdue_followups,
+        "call_queue_count": call_queue_count,
     }
 
 
@@ -1188,6 +1197,24 @@ def bulk_status(data: BulkStatusUpdate):
         cur.execute(
             f"UPDATE contacts SET status=%s, updated_at=%s WHERE id IN ({placeholders})",
             [data.status, now] + list(data.ids)
+        )
+    return {"updated": len(data.ids)}
+
+class BulkCallQueue(BaseModel):
+    ids: list
+    call_queue: bool = True
+
+@app.post("/api/contacts/bulk-call-queue")
+def bulk_call_queue(data: BulkCallQueue):
+    if not data.ids:
+        raise HTTPException(400, "Ingen IDer")
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        placeholders = ','.join(['%s'] * len(data.ids))
+        cur.execute(
+            f"UPDATE contacts SET call_queue=%s, updated_at=%s WHERE id IN ({placeholders})",
+            [data.call_queue, now] + list(data.ids)
         )
     return {"updated": len(data.ids)}
 
@@ -1257,7 +1284,7 @@ def check_duplicate(phone: str = None, org_nr: str = None, email: str = None):
 @app.get("/api/contacts")
 def get_contacts(search: str = None, status: str = None, category: str = None,
                  page: int = 0, limit: int = 50, minimal: str = None, has_email: str = None,
-                 city: str = None, interest_level: str = None):
+                 city: str = None, interest_level: str = None, call_queue: str = None):
     with get_conn() as conn:
         cur = conn.cursor()
         wheres, vals = [], []
@@ -1271,6 +1298,8 @@ def get_contacts(search: str = None, status: str = None, category: str = None,
             wheres.append("LOWER(city)=%s"); vals.append(city.lower())
         if interest_level:
             wheres.append("interest_level=%s"); vals.append(interest_level)
+        if call_queue and call_queue.lower() == 'true':
+            wheres.append("call_queue = true")
         if search:
             wheres.append("(LOWER(name) LIKE %s OR LOWER(company) LIKE %s OR LOWER(email) LIKE %s OR LOWER(phone) LIKE %s OR LOWER(org_nr) LIKE %s)")
             s = f"%{search.lower()}%"
@@ -1304,12 +1333,12 @@ def create_contact(c: Contact):
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, followup_date, website, org_nr, address, city, interest_level, service_interest, created_at, updated_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "INSERT INTO contacts (id, name, company, email, phone, source, status, category, notes, followup_date, website, org_nr, address, city, interest_level, service_interest, call_queue, created_at, updated_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (new_id, d["name"], d["company"], d["email"], d["phone"],
              d["source"], d["status"], d["category"], d["notes"], d.get("followup_date"),
              d.get("website"), d.get("org_nr"), d.get("address"), d.get("city"),
-             d.get("interest_level"), d.get("service_interest"), now, now)
+             d.get("interest_level"), d.get("service_interest"), d.get("call_queue", False), now, now)
         )
         row = cur.fetchone()
     return dict(row)
@@ -1326,7 +1355,7 @@ def get_contact(id: str):
 
 @app.patch("/api/contacts/{id}")
 async def update_contact(id: str, c: ContactUpdate):
-    payload = {k: v for k, v in c.model_dump().items() if v is not None or k in ("followup_date", "website", "org_nr", "address", "city", "interest_level", "service_interest", "notes")}
+    payload = {k: v for k, v in c.model_dump().items() if v is not None or k in ("followup_date", "website", "org_nr", "address", "city", "interest_level", "service_interest", "notes", "call_queue")}
     if not payload:
         raise HTTPException(400, "No fields to update")
     now = datetime.now(timezone.utc).isoformat()

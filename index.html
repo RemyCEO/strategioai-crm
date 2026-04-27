@@ -446,6 +446,7 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
     <div class="nav-item" onclick="showView('contacts')"><span class="icon">👥</span> Leads</div>
     <div class="nav-item" onclick="showView('deals')"><span class="icon">💼</span> Deals</div>
     <div class="nav-item" onclick="showView('pipeline')"><span class="icon">🔀</span> Pipeline</div>
+    <div class="nav-item" onclick="showView('callqueue')"><span class="icon">📞</span> Ringekø <span id="cq-badge" style="display:none;background:var(--green);color:#000;font-size:10px;font-weight:800;border-radius:20px;padding:1px 7px;margin-left:auto"></span></div>
     <div class="nav-label">Integrasjoner</div>
     <div class="nav-item" onclick="showView('stripe')"><span class="icon">💳</span> Stripe <span id="stripe-dot" style="display:none;width:7px;height:7px;border-radius:50%;margin-left:auto"></span></div>
     <div class="nav-item" id="nav-gmail" onclick="showView('gmail')"><span class="icon">📧</span> Gmail <span id="gmail-dot" style="display:none;width:7px;height:7px;border-radius:50%;margin-left:auto"></span></div>
@@ -778,6 +779,7 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
     <option value="tapt">Tapt</option>
   </select>
   <button class="btn btn-green btn-sm" onclick="applyBulkStatus()">Sett status</button>
+  <button class="btn btn-sm" onclick="applyBulkCallQueue()" style="background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3);font-weight:700">📞 Legg i ringekø</button>
   <button class="btn btn-danger btn-sm" onclick="applyBulkDelete()">🗑️ Slett</button>
   <button class="btn btn-ghost btn-sm" onclick="exportCSV()">📥 Eksporter</button>
   <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()">✕ Avbryt</button>
@@ -795,9 +797,9 @@ function showView(view) {
   currentView = view;
   location.hash = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const navIdx = ['dashboard','contacts','deals','pipeline','stripe','gmail','leadrapporter','produkter','maler','ordrebekreftelser','pitch'].indexOf(view);
+  const navIdx = ['dashboard','contacts','deals','pipeline','callqueue','stripe','gmail','leadrapporter','produkter','maler','ordrebekreftelser','pitch'].indexOf(view);
   if (navIdx >= 0) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
-  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', stripe:'Stripe Kunder', gmail:'Gmail', leadrapporter:'Lead-rapporter', produkter:'Produkter & Tjenester', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser', pitch:'Pitch' };
+  const titles = { dashboard:'Dashboard', contacts:'Leads', deals:'Deals', pipeline:'Pipeline', callqueue:'Ringekø', stripe:'Stripe Kunder', gmail:'Gmail', leadrapporter:'Lead-rapporter', produkter:'Produkter & Tjenester', maler:'E-postmaler', ordrebekreftelser:'Ordrebekreftelser', pitch:'Pitch' };
   document.getElementById('view-title').textContent = titles[view] || view;
   closePanel();
   render();
@@ -821,6 +823,7 @@ async function render() {
   }
   else if (currentView === 'deals') { actions.innerHTML=''; await renderDeals(); }
   else if (currentView === 'pipeline') { actions.innerHTML=''; await renderPipeline(); }
+  else if (currentView === 'callqueue') { actions.innerHTML=''; await renderCallQueue(); }
   else if (currentView === 'stripe') { actions.innerHTML=`<button class="btn btn-ghost btn-sm" onclick="stripeImport()" style="color:#a5b4fc;border-color:rgba(99,102,241,.4)">↓ Importer alle til CRM</button>`; await renderStripe(); }
   else if (currentView === 'gmail') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openComposeGmail()">✉️ Skriv e-post</button>`; await renderGmail(); }
   else if (currentView === 'maler') { actions.innerHTML=`<button class="btn btn-green btn-sm" onclick="openNyMal('email')">+ Ny mal</button>`; await renderMaler(); }
@@ -1031,7 +1034,7 @@ function _renderContactsPage() {
             return `
             <tr onclick="openPanel('${c.id}')" style="${_selectedContacts.has(c.id)?'background:rgba(34,197,94,.06)':isOverdue?'background:rgba(239,68,68,.04)':''}">
               <td style="padding-left:14px" onclick="event.stopPropagation()"><input type="checkbox" class="contact-cb" value="${c.id}" onchange="toggleContactSelect('${c.id}',this.checked)" ${_selectedContacts.has(c.id)?'checked':''} style="accent-color:var(--green);cursor:pointer"></td>
-              <td><strong>${c.name}</strong></td>
+              <td><strong>${c.name}</strong>${c.call_queue ? ' <span title="I ringekøen" style="font-size:11px">📞</span>' : ''}</td>
               <td>${c.company || '—'}</td>
               <td>${c.category ? `<span class="cat-badge" style="cursor:pointer" onclick="event.stopPropagation();contactCategoryFilter='${c.category}';renderContacts(true)">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
               <td style="font-size:12px;color:var(--muted)">${c.city || '—'}</td>
@@ -1182,6 +1185,7 @@ async function renderPanelTab(c) {
           activities.map(a => `<div class="activity-item"><div class="activity-dot" style="${a.type==='betaling'?'background:#a5b4fc':''}"></div><div><div class="activity-type">${activityIcons[a.type]||'•'} ${a.type}</div><div style="font-size:13px;margin-top:2px">${a.note||'—'}</div><div class="meta">${fmtDate(a.created_at)}</div></div></div>`).join('')}
       </div>
       <div style="display:flex;gap:8px;padding-top:8px">
+        <button class="btn btn-sm" style="flex:1;${c.call_queue?'background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3)':'background:var(--surface2);color:var(--muted);border:1px solid var(--border)'}" onclick="toggleCallQueue('${id}',${!c.call_queue})">${c.call_queue ? '✓ I ringekøen' : '📞 Legg i ringekø'}</button>
         <button class="btn btn-ghost btn-sm" style="flex:1" onclick="openEditContact('${id}')">✏️ Rediger</button>
         <button class="btn btn-danger btn-sm" onclick="deleteContact('${id}')">🗑️ Slett</button>
       </div>`;
@@ -2716,6 +2720,98 @@ function clearBulkSelection() {
   _renderBulkBar();
 }
 
+async function applyBulkCallQueue() {
+  if (_selectedContacts.size === 0) return;
+  const res = await api('/api/contacts/bulk-call-queue', 'POST', { ids: [..._selectedContacts], call_queue: true });
+  if (res) { clearBulkSelection(); renderContacts(false); updateCallQueueBadge(); toast(`${res.updated} leads lagt i ringekøen`); }
+}
+
+// --- RINGEKØ (Call Queue) ---
+async function renderCallQueue() {
+  const res = await api('/api/contacts?call_queue=true&limit=200');
+  const leads = res?.items || [];
+  const content = document.getElementById('content');
+  const actions = document.getElementById('topbar-actions');
+  actions.innerHTML = leads.length > 0 ? `<span style="font-size:13px;color:var(--green);font-weight:700">${leads.length} å ringe</span>` : '';
+
+  if (leads.length === 0) {
+    content.innerHTML = `
+      <div class="empty" style="padding:60px 20px">
+        <div class="emoji">📞</div>
+        <p style="font-size:16px;margin-bottom:8px">Ringekøen er tom</p>
+        <p style="color:var(--muted);font-size:13px">Gå til <a href="#contacts" onclick="showView('contacts')" style="color:var(--green);cursor:pointer">Leads</a>, velg noen og klikk «📞 Legg i ringekø»</p>
+      </div>`;
+    return;
+  }
+
+  content.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${leads.map((c, i) => {
+        const interestBadge = c.interest_level === 'hot' ? '🔥' : c.interest_level === 'warm' ? '🟡' : c.interest_level === 'cold' ? '❄️' : '';
+        return `
+        <div class="cq-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;display:flex;align-items:center;gap:16px;transition:.15s;cursor:pointer" onmouseover="this.style.borderColor='rgba(34,197,94,.3)'" onmouseout="this.style.borderColor='var(--border)'" onclick="openPanel('${c.id}')">
+          <div style="font-size:20px;font-weight:800;color:var(--muted);width:28px;text-align:center;flex-shrink:0">${i+1}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+              <strong style="font-size:15px">${c.name}</strong>
+              ${interestBadge ? `<span>${interestBadge}</span>` : ''}
+              ${c.category ? `<span class="cat-badge" style="font-size:11px">${CATEGORIES[c.category]||c.category}</span>` : ''}
+              <span class="badge ${c.status}" style="font-size:10px;padding:1px 7px">${c.status}</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap">
+              ${c.company ? `<span>${c.company}</span>` : ''}
+              ${c.city ? `<span>${c.city}</span>` : ''}
+              ${c.phone ? `<span style="color:var(--text2)">${c.phone}</span>` : '<span style="color:var(--danger)">Ingen telefon</span>'}
+            </div>
+            ${c.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.notes.substring(0,100)}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0" onclick="event.stopPropagation()">
+            ${c.phone ? `<button class="btn btn-green" onclick="startCall('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.id}')" style="padding:8px 16px;font-size:14px;font-weight:700">📞 Ring</button>` : ''}
+            <button class="btn btn-ghost btn-sm" onclick="removeFromCallQueue('${c.id}')" title="Fjern fra ringekø" style="padding:8px 10px;font-size:14px">✕</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:16px;display:flex;gap:8px">
+      <button class="btn btn-danger btn-sm" onclick="clearCallQueue()">Tøm hele køen</button>
+    </div>`;
+}
+
+async function removeFromCallQueue(id) {
+  const res = await api(`/api/contacts/${id}`, 'PATCH', { call_queue: false });
+  if (res) { toast('Fjernet fra ringekøen'); updateCallQueueBadge(); if (currentView === 'callqueue') renderCallQueue(); }
+}
+
+async function clearCallQueue() {
+  if (!confirm('Fjerne alle fra ringekøen?')) return;
+  const res = await api('/api/contacts?call_queue=true&limit=200');
+  const ids = (res?.items || []).map(c => c.id);
+  if (ids.length === 0) return;
+  await api('/api/contacts/bulk-call-queue', 'POST', { ids, call_queue: false });
+  toast('Ringekøen er tømt');
+  updateCallQueueBadge();
+  renderCallQueue();
+}
+
+async function updateCallQueueBadge() {
+  const s = await api('/api/stats', 'GET', null, false);
+  const badge = document.getElementById('cq-badge');
+  if (!badge) return;
+  const count = s?.call_queue_count || 0;
+  if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+  else { badge.style.display = 'none'; }
+}
+
+async function toggleCallQueue(id, val) {
+  const res = await api(`/api/contacts/${id}`, 'PATCH', { call_queue: val });
+  if (res) {
+    toast(val ? 'Lagt i ringekøen' : 'Fjernet fra ringekøen');
+    updateCallQueueBadge();
+    // Oppdater panel
+    openPanel(id);
+  }
+}
+
 // --- CSV EXPORT ---
 function exportCSV() {
   if (_allContacts.length === 0) { alert('Ingen leads å eksportere. Åpne Leads-siden først.'); return; }
@@ -3066,6 +3162,7 @@ function fmtDate(iso) {
 // Boot — sjekk setup først
 async function boot() {
   checkAllIntegrations();
+  updateCallQueueBadge();
   // Sjekk om returnert fra Gmail OAuth
   if (window.location.search.includes('gmail=connected')) {
     history.replaceState({}, '', '/');
@@ -3073,7 +3170,7 @@ async function boot() {
     return;
   }
   // Gjenopprett siste visning fra URL-hash
-  const validViews = ['dashboard','contacts','deals','pipeline','stripe','gmail','maler','ordrebekreftelser'];
+  const validViews = ['dashboard','contacts','deals','pipeline','callqueue','stripe','gmail','maler','ordrebekreftelser'];
   const hash = location.hash.replace('#','');
   if (hash && validViews.includes(hash)) {
     currentView = hash;
