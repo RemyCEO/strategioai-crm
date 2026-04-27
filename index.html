@@ -480,7 +480,7 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
     </div>
     <div class="topbar-actions" id="topbar-actions"></div>
   </div>
-  <div class="content" id="content"></div>
+  <div class="content" id="content" onclick="if(activePanelId && !event.target.closest('#contact-panel')) closePanel()"></div>
 </div>
 
 <!-- CALL BAR -->
