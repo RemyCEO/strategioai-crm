@@ -1020,7 +1020,7 @@ function _renderContactsPage() {
       <table>
         <thead><tr>
           <th style="width:36px;padding-left:14px"><input type="checkbox" id="select-all-cb" onchange="toggleAllContacts(this.checked)" style="accent-color:var(--green);cursor:pointer"></th>
-          <th>Navn</th><th>Firma</th><th>Kategori</th><th>By</th><th>Interesse</th><th>Status</th><th>Oppfølging</th>
+          <th>Navn</th><th>Firma</th><th>Kategori</th><th>By</th><th>Interesse</th><th>Status</th><th>Oppfølging</th><th></th>
         </tr></thead>
         <tbody>
           ${page.map(c => {
@@ -1043,6 +1043,7 @@ function _renderContactsPage() {
                 ${STATUS_CYCLE.map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${s}</option>`).join('')}
               </select></td>
               <td onclick="event.stopPropagation()">${fdDisplay}</td>
+              <td onclick="event.stopPropagation()"><a href="https://www.google.com/search?q=${encodeURIComponent((c.company||c.name) + (c.city?' '+c.city:''))}" target="_blank" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;white-space:nowrap" title="Søk på ${c.company||c.name} i Google">🔍 Google</a></td>
             </tr>`;}).join('')}
         </tbody>
       </table>
@@ -2766,6 +2767,7 @@ async function renderCallQueue() {
             ${c.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.notes.substring(0,100)}</div>` : ''}
           </div>
           <div style="display:flex;gap:8px;flex-shrink:0" onclick="event.stopPropagation()">
+            <a href="https://www.google.com/search?q=${encodeURIComponent((c.company||c.name) + (c.city?' '+c.city:''))}" target="_blank" class="btn btn-ghost btn-sm" style="padding:8px 10px;font-size:14px;text-decoration:none" title="Søk i Google">🔍</a>
             ${c.phone ? `<button class="btn btn-green" onclick="startCall('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.id}')" style="padding:8px 16px;font-size:14px;font-weight:700">📞 Ring</button>` : ''}
             <button class="btn btn-ghost btn-sm" onclick="removeFromCallQueue('${c.id}')" title="Fjern fra ringekø" style="padding:8px 10px;font-size:14px">✕</button>
           </div>
