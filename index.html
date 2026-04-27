@@ -1035,7 +1035,7 @@ function _renderContactsPage() {
             <tr id="row-${c.id}" onclick="openPanel('${c.id}')" style="${activePanelId===c.id?'background:rgba(34,197,94,.12);border-left:3px solid var(--green)':_selectedContacts.has(c.id)?'background:rgba(34,197,94,.06)':isOverdue?'background:rgba(239,68,68,.04)':''}">
               <td style="padding-left:14px" onclick="event.stopPropagation()"><input type="checkbox" class="contact-cb" value="${c.id}" onchange="toggleContactSelect('${c.id}',this.checked)" ${_selectedContacts.has(c.id)?'checked':''} style="accent-color:var(--green);cursor:pointer"></td>
               <td><strong>${c.name}</strong>${c.call_queue ? ' <span title="I ringekøen" style="font-size:11px">📞</span>' : ''}</td>
-              <td>${c.company || '—'}</td>
+              <td style="white-space:nowrap">${c.company || '—'} <span onclick="event.stopPropagation();toggleCallQueue('${c.id}',${!c.call_queue})" style="cursor:pointer;font-size:11px;opacity:${c.call_queue?'1':'.4'}" title="${c.call_queue?'Fjern fra ringekø':'Legg i ringekø'}">${c.call_queue?'✅':'📞'}</span></td>
               <td>${c.category ? `<span class="cat-badge" style="cursor:pointer" onclick="event.stopPropagation();contactCategoryFilter='${c.category}';renderContacts(true)">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
               <td style="font-size:12px;color:var(--muted)">${c.city || '—'}</td>
               <td>${c.interest_level === 'hot' ? '<span style="color:#ef4444;font-weight:700">🔥</span>' : c.interest_level === 'warm' ? '<span style="color:#f59e0b">🟡</span>' : c.interest_level === 'cold' ? '<span style="color:#60a5fa">❄️</span>' : '<span style="color:var(--muted)">—</span>'}</td>
