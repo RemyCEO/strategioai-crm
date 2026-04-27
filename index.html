@@ -1032,7 +1032,7 @@ function _renderContactsPage() {
               ? `<span onclick="event.stopPropagation();quickFollowup('${c.id}','${fd}')" style="cursor:pointer;color:${isOverdue?'#ef4444':isToday?'#f59e0b':'var(--muted)'};font-weight:${isOverdue||isToday?'700':'400'}" title="${isOverdue?'Forfalt!':isToday?'I dag':fd}">${isOverdue?'⚠️ ':''}${fd}</span>`
               : `<span onclick="event.stopPropagation();quickFollowup('${c.id}','')" style="cursor:pointer;color:var(--muted);font-size:12px" title="Sett oppfølgingsdato">+ dato</span>`;
             return `
-            <tr onclick="openPanel('${c.id}')" style="${_selectedContacts.has(c.id)?'background:rgba(34,197,94,.06)':isOverdue?'background:rgba(239,68,68,.04)':''}">
+            <tr id="row-${c.id}" onclick="openPanel('${c.id}')" style="${activePanelId===c.id?'background:rgba(34,197,94,.12);border-left:3px solid var(--green)':_selectedContacts.has(c.id)?'background:rgba(34,197,94,.06)':isOverdue?'background:rgba(239,68,68,.04)':''}">
               <td style="padding-left:14px" onclick="event.stopPropagation()"><input type="checkbox" class="contact-cb" value="${c.id}" onchange="toggleContactSelect('${c.id}',this.checked)" ${_selectedContacts.has(c.id)?'checked':''} style="accent-color:var(--green);cursor:pointer"></td>
               <td><strong>${c.name}</strong>${c.call_queue ? ' <span title="I ringekøen" style="font-size:11px">📞</span>' : ''}</td>
               <td>${c.company || '—'}</td>
@@ -1129,8 +1129,12 @@ async function renderPipeline() {
 
 // --- PANEL ---
 async function openPanel(id, tab) {
+  const prevId = activePanelId;
   activePanelId = id;
   panelTab = tab || 'info';
+  // Highlight aktiv rad
+  if (prevId) { const prev = document.getElementById('row-'+prevId); if (prev) { prev.style.background=''; prev.style.borderLeft=''; } }
+  const row = document.getElementById('row-'+id); if (row) { row.style.background='rgba(34,197,94,.12)'; row.style.borderLeft='3px solid var(--green)'; }
   // Bruk cache først, unngå å hente alle 2676 leads
   let c = _allContacts.find(x => x.id === id) || await api(`/api/contacts/${id}`);
   if (!c) return;
@@ -1320,6 +1324,7 @@ async function loadStripePanel(email) {
 }
 
 function closePanel() {
+  if (activePanelId) { const prev = document.getElementById('row-'+activePanelId); if (prev) { prev.style.background=''; prev.style.borderLeft=''; } }
   document.getElementById('contact-panel').classList.remove('open');
   activePanelId = null;
   if (currentView !== 'contacts') { const b = document.getElementById('bulk-bar'); if(b) b.style.display='none'; }
