@@ -747,6 +747,15 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
 
 </div>
 
+<!-- CUSTOM DIALOG -->
+<div id="crm-dialog-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:200;align-items:center;justify-content:center" onclick="if(event.target===this)crmDialogCancel()">
+  <div style="background:linear-gradient(145deg,rgba(15,30,47,0.95),rgba(12,24,38,0.98));border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-lg);width:400px;padding:28px;box-shadow:0 30px 80px rgba(0,0,0,.7);animation:fade-in .2s ease-out">
+    <div id="crm-dialog-title" style="font-size:15px;font-weight:700;margin-bottom:14px"></div>
+    <div id="crm-dialog-body"></div>
+    <div id="crm-dialog-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"></div>
+  </div>
+</div>
+
 <!-- BULK ACTION BAR -->
 <div id="bulk-bar" style="display:none;position:fixed;bottom:0;left:240px;right:0;background:linear-gradient(135deg,#0d1825,#091520);border-top:2px solid var(--green);padding:12px 28px;z-index:40;align-items:center;gap:12px;box-shadow:0 -4px 24px rgba(0,0,0,.5)">
   <span id="bulk-count" style="font-weight:700;color:var(--green);font-size:13px"></span>
@@ -788,6 +797,36 @@ tbody tr:hover .avatar { box-shadow:0 0 16px rgba(34,197,94,0.25); border-color:
 <script>
 const API = '';
 let currentView = 'dashboard';
+
+// --- CUSTOM DIALOG (erstatter confirm/prompt) ---
+let _dialogResolve = null;
+function crmDialogCancel() {
+  document.getElementById('crm-dialog-overlay').style.display='none';
+  if (_dialogResolve) { _dialogResolve(null); _dialogResolve=null; }
+}
+function crmConfirm(title, message) {
+  return new Promise(resolve => {
+    _dialogResolve = resolve;
+    document.getElementById('crm-dialog-title').textContent = title;
+    document.getElementById('crm-dialog-body').innerHTML = `<div style="font-size:13px;color:var(--muted)">${message}</div>`;
+    document.getElementById('crm-dialog-actions').innerHTML = `
+      <button class="btn btn-ghost btn-sm" onclick="crmDialogCancel()">Avbryt</button>
+      <button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none" onclick="document.getElementById('crm-dialog-overlay').style.display='none';_dialogResolve(true);_dialogResolve=null">Slett</button>`;
+    document.getElementById('crm-dialog-overlay').style.display='flex';
+  });
+}
+function crmPrompt(title, placeholder, current) {
+  return new Promise(resolve => {
+    _dialogResolve = resolve;
+    document.getElementById('crm-dialog-title').textContent = title;
+    document.getElementById('crm-dialog-body').innerHTML = `<textarea id="crm-dialog-input" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:13px;outline:none;font-family:inherit;min-height:80px;resize:vertical" placeholder="${placeholder||''}">${current||''}</textarea>`;
+    document.getElementById('crm-dialog-actions').innerHTML = `
+      <button class="btn btn-ghost btn-sm" onclick="crmDialogCancel()">Avbryt</button>
+      <button class="btn btn-green btn-sm" onclick="const v=document.getElementById('crm-dialog-input').value;document.getElementById('crm-dialog-overlay').style.display='none';_dialogResolve(v);_dialogResolve=null">Lagre</button>`;
+    document.getElementById('crm-dialog-overlay').style.display='flex';
+    setTimeout(()=>document.getElementById('crm-dialog-input').focus(),100);
+  });
+}
 let editContactId = null;
 let activePanelId = null;
 let panelTab = 'info';
@@ -875,7 +914,7 @@ async function renderDashboard() {
     </div>`;
 
   const overdueCard = (s.overdue_followups > 0) ? `
-    <div class="stat-card" style="border-color:rgba(239,68,68,.4);cursor:pointer" onclick="showView('contacts')" title="Vis leads med forfalt oppfølging">
+    <div class="stat-card" style="border-color:rgba(239,68,68,.4);cursor:pointer" onclick="showOverdueLeads()" title="Vis leads med forfalt oppfølging">
       <div class="label" style="color:#ef4444">⏰ Forfalt oppfølging</div>
       <div class="value" style="color:#ef4444">${s.overdue_followups}</div>
       <div class="sub">Klikk for å se</div>
@@ -1682,21 +1721,21 @@ function openStripeCustomer(c) {
 }
 
 async function stripeRefund(chargeId, amount, currency) {
-  if (!confirm(`Refunder ${fmt(amount)} ${currency}?\n\nDette kan ikke angres.`)) return;
+  if (!await crmConfirm('Refunder', `Refunder ${fmt(amount)} ${currency}? Dette kan ikke angres.`)) return;
   const res = await api('/api/stripe/refund', 'POST', { charge_id: chargeId });
   if (res && res.ok) { toast(`✅ Refundert ${fmt(res.amount)}`); render(); }
   else toast('Feil ved refusjon', 'err');
 }
 
 async function stripeCancelSub(subId) {
-  if (!confirm('Kanseller abonnementet?\n\nDet vil bli avsluttet ved slutten av inneværende periode.')) return;
+  if (!await crmConfirm('Kanseller abonnement', 'Abonnementet vil bli avsluttet ved slutten av inneværende periode.')) return;
   const res = await api('/api/stripe/subscriptions/cancel', 'POST', { subscription_id: subId });
   if (res && res.ok) { toast(`✅ Kansellert – avsluttes ${fmtDate(res.cancel_at)}`); render(); }
   else toast('Feil ved kansellering', 'err');
 }
 
 async function stripeRemindInvoice(invoiceId) {
-  if (!confirm('Send fakturapåminnelse til kunden?')) return;
+  if (!await crmConfirm('Fakturapåminnelse', 'Sende fakturapåminnelse til kunden?')) return;
   const res = await api('/api/stripe/invoices/remind', 'POST', { invoice_id: invoiceId });
   if (res && res.ok) toast('✅ Påminnelse sendt!');
   else toast('Feil ved sending', 'err');
@@ -1871,7 +1910,7 @@ async function deleteActivity(id) {
 }
 
 async function deleteContact(id) {
-  if (!confirm('Slett lead og all tilhørende data?')) return;
+  if (!await crmConfirm('Slett lead', 'Er du sikker på at du vil slette denne leaden og all tilhørende data?')) return;
   await api(`/api/contacts/${id}`, 'DELETE');
   closePanel();
   const row = document.getElementById(`row-${id}`);
@@ -2380,7 +2419,7 @@ async function updatePitch(id) {
 }
 
 async function deletePitchConfirm(id) {
-  if (!confirm('Slett denne pitchen?')) return;
+  if (!await crmConfirm('Slett pitch', 'Er du sikker på at du vil slette denne pitchen?')) return;
   await api(`/api/pitches/${id}`, 'DELETE');
   renderPitch();
 }
@@ -2448,7 +2487,7 @@ async function updateArgument(argId, pitchId) {
 }
 
 async function deleteArgument(argId) {
-  if (!confirm('Slett dette argumentet?')) return;
+  if (!await crmConfirm('Slett argument', 'Er du sikker på at du vil slette dette argumentet?')) return;
   await api(`/api/pitch-arguments/${argId}`, 'DELETE');
   renderPitch();
 }
@@ -2494,9 +2533,9 @@ async function renderOrdrebekreftelser() {
     </div>`;
 }
 
-function sendMalDirekte(t) {
+async function sendMalDirekte(t) {
   if (!gmailConnected) {
-    if (confirm('Gmail er ikke koblet til. Vil du gå til Gmail-siden for å koble til?')) showView('gmail');
+    if (await crmConfirm('Gmail ikke koblet', 'Gmail er ikke koblet til. Gå til Gmail-siden for å koble til?')) showView('gmail');
     return;
   }
   document.getElementById('g-to').value = '';
@@ -2509,19 +2548,19 @@ function sendMalDirekte(t) {
 }
 
 async function deleteMal(id) {
-  if (!confirm('Slett denne malen?')) return;
+  if (!await crmConfirm('Slett mal', 'Er du sikker på at du vil slette denne malen?')) return;
   await api(`/api/email-templates/${id}`, 'DELETE');
   renderMaler();
 }
 
 async function deleteOrdre(id) {
-  if (!confirm('Slett denne malen?')) return;
+  if (!await crmConfirm('Slett ordrebekreftelse', 'Er du sikker på at du vil slette denne malen?')) return;
   await api(`/api/email-templates/${id}`, 'DELETE');
   renderOrdrebekreftelser();
 }
 
 async function kopierMal(t) {
-  const name = prompt('Navn på kopien:', t.name + ' (kopi)');
+  const name = await crmPrompt('Kopier mal', 'Navn på kopien', t.name + ' (kopi)');
   if (!name) return;
   await api('/api/email-templates', 'POST', { name, subject: t.subject, body: t.body, category: t.category, image_filename: t.image_filename });
   if (currentView === 'maler') renderMaler();
@@ -2748,7 +2787,7 @@ async function applyBulkStatus() {
 
 async function applyBulkDelete() {
   if (_selectedContacts.size === 0) return;
-  if (!confirm(`Slette ${_selectedContacts.size} leads permanent?`)) return;
+  if (!await crmConfirm('Slett leads', `Slette ${_selectedContacts.size} leads permanent?`)) return;
   const res = await api('/api/contacts/bulk-delete', 'POST', { ids: [..._selectedContacts] });
   if (res) { clearBulkSelection(); renderContacts(true); toast(`${res.deleted} leads slettet`); }
 }
@@ -2825,7 +2864,7 @@ async function removeFromCallQueue(id) {
 }
 
 async function clearCallQueue() {
-  if (!confirm('Fjerne alle fra ringekøen?')) return;
+  if (!await crmConfirm('Tøm ringekø', 'Fjerne alle leads fra ringekøen?')) return;
   const res = await api('/api/contacts?call_queue=true&limit=200');
   const ids = (res?.items || []).map(c => c.id);
   if (ids.length === 0) return;
@@ -2924,7 +2963,7 @@ async function quickStatus(id, newStatus) {
 }
 
 async function quickFollowup(id, current) {
-  const date = prompt('Oppfølgingsdato (ÅÅÅÅ-MM-DD), blank for å fjerne:', current || new Date().toISOString().slice(0,10));
+  const date = await crmPrompt('Oppfølgingsdato', 'ÅÅÅÅ-MM-DD (blank for å fjerne)', current || new Date().toISOString().slice(0,10));
   if (date === null) return;
   const res = await api(`/api/contacts/${id}`, 'PATCH', { followup_date: date.trim() || null });
   if (res) {
@@ -2935,10 +2974,47 @@ async function quickFollowup(id, current) {
   }
 }
 
+function showOverdueLeads() {
+  contactFilter = '';
+  contactCategoryFilter = '';
+  contactSearch = '';
+  showView('contacts');
+  // Etter renderContacts er ferdig, sett filter til overdue
+  setTimeout(async () => {
+    const res = await api('/api/contacts/followups');
+    if (res && res.length > 0) {
+      _allContacts = res;
+      _contactsTotal = res.length;
+      document.getElementById('content').innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="font-size:13px;color:#ef4444;font-weight:700">⏰ ${res.length} leads med forfalt oppfølging</span>
+          <button class="btn btn-ghost btn-sm" onclick="renderContacts(true)">Vis alle leads</button>
+        </div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Navn</th><th>Firma</th><th>Kategori</th><th>By</th><th>Status</th><th>Oppfølging</th><th>Notat</th><th></th></tr></thead>
+          <tbody>
+            ${res.map(c => `
+              <tr id="row-${c.id}" onclick="openPanel('${c.id}')" style="background:rgba(239,68,68,.04)">
+                <td><strong>${c.name}</strong></td>
+                <td>${c.company || '—'}</td>
+                <td>${c.category ? `<span class="cat-badge">${CATEGORIES[c.category]||c.category}</span>` : '—'}</td>
+                <td style="font-size:12px;color:var(--muted)">${c.city || '—'}</td>
+                <td><span class="badge ${c.status}">${c.status}</span></td>
+                <td style="color:#ef4444;font-weight:700">${c.followup_date}</td>
+                <td onclick="event.stopPropagation()"><span onclick="quickNote('${c.id}','${(c.notes||'').replace(/'/g,"\\'")}')" style="cursor:pointer;font-size:11px;color:${c.notes?'var(--text2)':'var(--muted)'}">${c.notes ? '📝 '+c.notes.substring(0,40) : '+ notat'}</span></td>
+                <td onclick="event.stopPropagation()"><a href="https://www.google.com/search?q=${encodeURIComponent([c.name,c.company||'',c.city||''].filter(Boolean).join(' '))}" target="_blank" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none">🔍 Google</a></td>
+              </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    }
+  }, 400);
+}
+
 async function deleteLeadByName(name) {
   const lookup = await api(`/api/contacts/lookup-by-name?name=${encodeURIComponent(name)}`);
   if (!lookup || !lookup.found) { toast('Fant ikke kontakten i CRM'); return; }
-  if (!confirm(`Slett "${name}" fra CRM?`)) return;
+  if (!await crmConfirm('Slett lead', `Slette "${name}" fra CRM?`)) return;
   const el = document.querySelector(`[onclick*="deleteLeadByName"]`)?.closest('[style*="display:flex;align-items:flex-start"]');
   if (el) { el.style.opacity='0'; el.style.transition='opacity .2s'; setTimeout(()=>el.remove(), 200); }
   await api(`/api/contacts/${lookup.id}`, 'DELETE');
@@ -2948,17 +3024,23 @@ async function deleteLeadByName(name) {
 async function quickNoteByName(name) {
   const lookup = await api(`/api/contacts/lookup-by-name?name=${encodeURIComponent(name)}`);
   if (!lookup || !lookup.found) { toast('Fant ikke kontakten i CRM'); return; }
-  const note = prompt('Notat:', lookup.notes || '');
+  const note = await crmPrompt('Notat', 'Skriv et notat...', lookup.notes || '');
   if (note === null) return;
   const res = await api(`/api/contacts/${lookup.id}`, 'PATCH', { notes: note.trim() || null });
-  if (res) { toast(note.trim() ? 'Notat lagret' : 'Notat fjernet'); }
+  if (res) {
+    if (note.trim()) api('/api/activities', 'POST', { contact_id: lookup.id, type: 'notat', note: note.trim() });
+    toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
+  }
 }
 
 async function quickNote(id, current) {
-  const note = prompt('Notat:', current || '');
+  const note = await crmPrompt('Notat', 'Skriv et notat...', current || '');
   if (note === null) return;
   const res = await api(`/api/contacts/${id}`, 'PATCH', { notes: note.trim() || null });
   if (res) {
+    if (note.trim()) {
+      api('/api/activities', 'POST', { contact_id: id, type: 'notat', note: note.trim() });
+    }
     const idx = _allContacts.findIndex(c => c.id === id);
     if (idx >= 0) _allContacts[idx].notes = note.trim() || null;
     const scrollY = window.scrollY;
@@ -3046,7 +3128,7 @@ async function toggleProduct(id, active) {
 }
 
 async function deleteProduct(id, name) {
-  if (!confirm('Slette "' + name + '"?')) return;
+  if (!await crmConfirm('Slett produkt', `Slette "${name}"?`)) return;
   await api('/api/products/' + id, 'DELETE');
   toast('Produkt slettet'); renderProdukter();
 }
@@ -3369,7 +3451,7 @@ async function renderLeadRapporter() {
 }
 
 async function triggerLeadScrape() {
-  if (!confirm('Kjøre lead-scraping nå? (3 tilfeldige bransjer × 3 byer)')) return;
+  if (!await crmConfirm('Kjør scraping', 'Kjøre lead-scraping nå? (3 tilfeldige bransjer × 3 byer)')) return;
   const btn = document.querySelector('.topbar-actions .btn-green');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Scraper...'; }
   try {
