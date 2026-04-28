@@ -1481,6 +1481,12 @@ def create_activity(a: Activity):
     data = a.model_dump()
     with get_conn() as conn:
         cur = conn.cursor()
+        # Fjern tidligere aktivitet av samme type for samme kontakt (unngå duplikater i dashboard)
+        if data["contact_id"] and data["type"] == "notat":
+            cur.execute(
+                "DELETE FROM activities WHERE contact_id=%s AND type='notat'",
+                (data["contact_id"],)
+            )
         cur.execute(
             "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
             (new_id, data["contact_id"], data["deal_id"], data["type"], data["note"], now)
