@@ -2925,6 +2925,15 @@ async function quickFollowup(id, current) {
   }
 }
 
+async function deleteLeadByName(name) {
+  const lookup = await api(`/api/contacts/lookup-by-name?name=${encodeURIComponent(name)}`);
+  if (!lookup || !lookup.found) { toast('Fant ikke kontakten i CRM'); return; }
+  if (!confirm(`Slett "${name}" fra CRM?`)) return;
+  await api(`/api/contacts/${lookup.id}`, 'DELETE');
+  toast(`${name} slettet`);
+  render();
+}
+
 async function quickNoteByName(name) {
   const lookup = await api(`/api/contacts/lookup-by-name?name=${encodeURIComponent(name)}`);
   if (!lookup || !lookup.found) { toast('Fant ikke kontakten i CRM'); return; }
@@ -3333,7 +3342,10 @@ async function renderLeadRapporter() {
                     <div style="font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px">${l.name} <span style="font-size:11px;color:var(--muted);font-weight:400">${l.city || ''}</span> <a href="https://www.google.com/search?q=${encodeURIComponent(l.name + ' ' + (l.city || ''))}" target="_blank" rel="noopener" title="Søk på Google" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;background:rgba(66,133,244,.1);color:#4285f4;font-size:12px;text-decoration:none;flex-shrink:0;transition:background .2s" onmouseenter="this.style.background='rgba(66,133,244,.25)'" onmouseleave="this.style.background='rgba(66,133,244,.1)'">G</a></div>
                     <div style="font-size:11px;color:var(--muted);margin-top:2px">${catIcons[l.category]||''} ${catLabels[l.category]||l.category} ${l.phone ? '· 📞 '+l.phone : ''} ${l.rating ? '· ⭐ '+l.rating : ''}</div>
                     <div style="font-size:11px;color:var(--green);margin-top:4px;font-weight:500">💡 ${l.strategy}</div>
-                    <div onclick="quickNoteByName('${l.name.replace(/'/g,"\\'")}')" style="font-size:11px;color:var(--muted);margin-top:4px;cursor:pointer;opacity:.7;transition:opacity .2s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.7'">📝 Legg til notat</div>
+                    <div style="display:flex;gap:12px;margin-top:4px">
+                      <div onclick="quickNoteByName('${l.name.replace(/'/g,"\\'")}')" style="font-size:11px;color:var(--muted);cursor:pointer;opacity:.7;transition:opacity .2s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.7'">📝 Notat</div>
+                      <div onclick="deleteLeadByName('${l.name.replace(/'/g,"\\'")}')" style="font-size:11px;color:var(--muted);cursor:pointer;opacity:.7;transition:opacity .2s" onmouseenter="this.style.opacity='1';this.style.color='#ef4444'" onmouseleave="this.style.opacity='.7';this.style.color='var(--muted)'">✕ Slett</div>
+                    </div>
                   </div>
                 </div>`).join('')}
             </div>` : ''}
