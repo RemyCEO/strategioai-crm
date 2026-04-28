@@ -3209,10 +3209,10 @@ async function api(url, method='GET', body=null, useCache=false) {
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(API + url, opts);
   if (!r.ok) { console.error(await r.text()); return null; }
-  if (method === 'DELETE') return null;
+  if (method !== 'GET') _apiCache.clear(); // invalidate on mutations
+  if (method === 'DELETE') return {ok: true};
   const data = await r.json();
   if (method === 'GET') _apiCache.set(url, { data, ts: Date.now() });
-  if (method !== 'GET') _apiCache.clear(); // invalidate on mutations
   return data;
 }
 
