@@ -3026,31 +3026,27 @@ async function quickNoteByName(name) {
   if (!lookup || !lookup.found) { toast('Fant ikke kontakten i CRM'); return; }
   const note = await crmPrompt('Notat', 'Skriv et notat...', lookup.notes || '');
   if (note === null) return;
-  const res = await api(`/api/contacts/${lookup.id}`, 'PATCH', { notes: note.trim() || null });
-  if (res) {
-    if (note.trim()) await api('/api/activities', 'POST', { contact_id: lookup.id, type: 'notat', note: note.trim() });
-    toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
-  }
+  await api(`/api/contacts/${lookup.id}`, 'PATCH', { notes: note.trim() || null });
+  if (note.trim()) await api('/api/activities', 'POST', { contact_id: lookup.id, type: 'notat', note: note.trim() });
+  toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
 }
 
 async function quickNote(id, current) {
   const note = await crmPrompt('Notat', 'Skriv et notat...', current || '');
   if (note === null) return;
-  const res = await api(`/api/contacts/${id}`, 'PATCH', { notes: note.trim() || null });
-  if (res) {
-    if (note.trim()) {
-      await api('/api/activities', 'POST', { contact_id: id, type: 'notat', note: note.trim() });
-    }
-    const idx = _allContacts.findIndex(c => c.id === id);
-    if (idx >= 0) _allContacts[idx].notes = note.trim() || null;
-    const scrollY = window.scrollY;
-    if (currentView === 'contacts') _renderContactsPage();
-    else if (currentView === 'callqueue') await renderCallQueue();
-    else if (currentView === 'dashboard') await renderDashboard();
-    window.scrollTo(0, scrollY);
-    if (activePanelId === id) openPanel(id);
-    toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
+  await api(`/api/contacts/${id}`, 'PATCH', { notes: note.trim() || null });
+  if (note.trim()) {
+    await api('/api/activities', 'POST', { contact_id: id, type: 'notat', note: note.trim() });
   }
+  const idx = _allContacts.findIndex(c => c.id === id);
+  if (idx >= 0) _allContacts[idx].notes = note.trim() || null;
+  const scrollY = window.scrollY;
+  if (currentView === 'contacts') _renderContactsPage();
+  else if (currentView === 'callqueue') await renderCallQueue();
+  else if (currentView === 'dashboard') await renderDashboard();
+  window.scrollTo(0, scrollY);
+  if (activePanelId === id) openPanel(id);
+  toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
 }
 
 // --- PRODUKTER / TJENESTER ---
