@@ -1828,7 +1828,9 @@ async function saveContact() {
   // Flash panelet grønt som visuell bekreftelse
   const panel = document.getElementById('contact-panel');
   if (panel) { panel.style.boxShadow='inset 0 0 40px rgba(34,197,94,.25)'; setTimeout(()=>panel.style.boxShadow='',1200); }
-  render();
+  const scrollY = window.scrollY;
+  if (currentView === 'contacts') { await renderContacts(); window.scrollTo(0, scrollY); }
+  else { await render(); window.scrollTo(0, scrollY); }
   if (activePanelId) openPanel(activePanelId);
 }
 
@@ -1862,15 +1864,19 @@ async function saveActivity() {
 }
 
 async function deleteActivity(id) {
+  const el = document.querySelector(`[onclick*="deleteActivity('${id}')"]`);
+  const item = el ? el.closest('.activity-item') : null;
+  if (item) { item.style.opacity='0'; item.style.transition='opacity .2s'; setTimeout(()=>item.remove(), 200); }
   await api(`/api/activities/${id}`, 'DELETE');
-  render();
 }
 
 async function deleteContact(id) {
   if (!confirm('Slett lead og all tilhørende data?')) return;
   await api(`/api/contacts/${id}`, 'DELETE');
   closePanel();
-  render();
+  const row = document.getElementById(`row-${id}`);
+  if (row) { row.style.opacity='0'; row.style.transition='opacity .2s'; setTimeout(()=>row.remove(), 200); }
+  else { const scrollY = window.scrollY; await renderContacts(); window.scrollTo(0, scrollY); }
 }
 
 // --- GMAIL ---
@@ -2933,9 +2939,10 @@ async function deleteLeadByName(name) {
   const lookup = await api(`/api/contacts/lookup-by-name?name=${encodeURIComponent(name)}`);
   if (!lookup || !lookup.found) { toast('Fant ikke kontakten i CRM'); return; }
   if (!confirm(`Slett "${name}" fra CRM?`)) return;
+  const el = document.querySelector(`[onclick*="deleteLeadByName"]`)?.closest('[style*="display:flex;align-items:flex-start"]');
+  if (el) { el.style.opacity='0'; el.style.transition='opacity .2s'; setTimeout(()=>el.remove(), 200); }
   await api(`/api/contacts/${lookup.id}`, 'DELETE');
   toast(`${name} slettet`);
-  render();
 }
 
 async function quickNoteByName(name) {
@@ -2944,7 +2951,7 @@ async function quickNoteByName(name) {
   const note = prompt('Notat:', lookup.notes || '');
   if (note === null) return;
   const res = await api(`/api/contacts/${lookup.id}`, 'PATCH', { notes: note.trim() || null });
-  if (res) { toast(note.trim() ? 'Notat lagret' : 'Notat fjernet'); render(); }
+  if (res) { toast(note.trim() ? 'Notat lagret' : 'Notat fjernet'); }
 }
 
 async function quickNote(id, current) {
@@ -2954,9 +2961,10 @@ async function quickNote(id, current) {
   if (res) {
     const idx = _allContacts.findIndex(c => c.id === id);
     if (idx >= 0) _allContacts[idx].notes = note.trim() || null;
+    const scrollY = window.scrollY;
     if (currentView === 'contacts') _renderContactsPage();
-    else if (currentView === 'callqueue') renderCallQueue();
-    else render();
+    else if (currentView === 'callqueue') await renderCallQueue();
+    window.scrollTo(0, scrollY);
     if (activePanelId === id) openPanel(id);
     toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
   }
