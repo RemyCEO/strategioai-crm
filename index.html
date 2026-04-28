@@ -876,7 +876,7 @@ async function render() {
 async function renderDashboard() {
   const [s, activities] = await Promise.all([
     api('/api/stats', 'GET', null, true),
-    api('/api/activities/recent?limit=10', 'GET', null, true)
+    api('/api/activities/recent?limit=10')
   ]);
   const content = document.getElementById('content');
 
@@ -3028,7 +3028,7 @@ async function quickNoteByName(name) {
   if (note === null) return;
   const res = await api(`/api/contacts/${lookup.id}`, 'PATCH', { notes: note.trim() || null });
   if (res) {
-    if (note.trim()) api('/api/activities', 'POST', { contact_id: lookup.id, type: 'notat', note: note.trim() });
+    if (note.trim()) await api('/api/activities', 'POST', { contact_id: lookup.id, type: 'notat', note: note.trim() });
     toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
   }
 }
@@ -3039,13 +3039,14 @@ async function quickNote(id, current) {
   const res = await api(`/api/contacts/${id}`, 'PATCH', { notes: note.trim() || null });
   if (res) {
     if (note.trim()) {
-      api('/api/activities', 'POST', { contact_id: id, type: 'notat', note: note.trim() });
+      await api('/api/activities', 'POST', { contact_id: id, type: 'notat', note: note.trim() });
     }
     const idx = _allContacts.findIndex(c => c.id === id);
     if (idx >= 0) _allContacts[idx].notes = note.trim() || null;
     const scrollY = window.scrollY;
     if (currentView === 'contacts') _renderContactsPage();
     else if (currentView === 'callqueue') await renderCallQueue();
+    else if (currentView === 'dashboard') await renderDashboard();
     window.scrollTo(0, scrollY);
     if (activePanelId === id) openPanel(id);
     toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
