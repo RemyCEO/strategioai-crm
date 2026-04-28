@@ -866,7 +866,11 @@ async function renderDashboard() {
             ${a.note ? `<div style="font-size:12px;color:var(--text2);margin-top:2px">${a.note.substring(0,100)}</div>` : ''}
             <div class="meta">${fmtDate(a.created_at)}</div>
           </div>
-          <button onclick="event.stopPropagation();deleteActivity('${a.id}')" title="Slett" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:4px;opacity:.4;transition:all .2s" onmouseenter="this.style.opacity='1';this.style.color='#ef4444'" onmouseleave="this.style.opacity='.4';this.style.color='var(--muted)'">&times;</button>
+          <div style="display:flex;gap:2px;flex-shrink:0">
+            ${a.contact_id ? `<button onclick="event.stopPropagation();quickNote('${a.contact_id}','')" title="Notat" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:4px 6px;border-radius:4px;opacity:.4;transition:all .2s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.4'">📝</button>` : ''}
+            ${a.contact_id ? `<button onclick="event.stopPropagation();openEditContact('${a.contact_id}')" title="Rediger" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:4px 6px;border-radius:4px;opacity:.4;transition:all .2s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.4'">✏️</button>` : ''}
+            <button onclick="event.stopPropagation();deleteActivity('${a.id}')" title="Slett" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:4px;opacity:.4;transition:all .2s" onmouseenter="this.style.opacity='1';this.style.color='#ef4444'" onmouseleave="this.style.opacity='.4';this.style.color='var(--muted)'">&times;</button>
+          </div>
         </div>`).join('')}
     </div>`;
 
