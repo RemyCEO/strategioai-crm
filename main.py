@@ -1474,6 +1474,16 @@ def create_activity(a: Activity):
         row = cur.fetchone()
     return dict(row)
 
+@app.delete("/api/activities/{activity_id}")
+def delete_activity(activity_id: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM activities WHERE id=%s RETURNING id", (activity_id,))
+        deleted = cur.fetchone()
+    if not deleted:
+        raise HTTPException(404, "Aktivitet ikke funnet")
+    return {"ok": True}
+
 
 # --- Stripe ---
 

@@ -859,13 +859,14 @@ async function renderDashboard() {
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
       <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:14px">Siste aktiviteter</div>
       ${activities.map(a => `
-        <div class="activity-item">
+        <div class="activity-item" style="position:relative">
           <div class="activity-dot"></div>
-          <div>
+          <div style="flex:1">
             <div style="font-size:13px;font-weight:500">${a.contact_name || '—'} <span class="activity-type">${activityIcons[a.type]||'•'} ${a.type}</span></div>
             ${a.note ? `<div style="font-size:12px;color:var(--text2);margin-top:2px">${a.note.substring(0,100)}</div>` : ''}
             <div class="meta">${fmtDate(a.created_at)}</div>
           </div>
+          <button onclick="deleteActivity('${a.id}')" title="Slett" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:4px;opacity:.4;transition:all .2s" onmouseenter="this.style.opacity='1';this.style.color='#ef4444'" onmouseleave="this.style.opacity='.4';this.style.color='var(--muted)'">&times;</button>
         </div>`).join('')}
     </div>`;
 
@@ -1236,7 +1237,7 @@ async function renderPanelTab(c) {
       const ad = document.getElementById('panel-activities');
       if (ad) ad.innerHTML = `<h3 style="display:flex;justify-content:space-between;align-items:center">Aktiviteter<button class="btn btn-ghost btn-sm" onclick="openNewActivity('${id}')">+ Logg</button></h3>` +
         (activities.length === 0 ? `<p style="font-size:12px;color:var(--muted)">Ingen aktiviteter</p>` :
-        activities.map(a => `<div class="activity-item"><div class="activity-dot" style="${a.type==='betaling'?'background:#a5b4fc':''}"></div><div><div class="activity-type">${activityIcons[a.type]||'•'} ${a.type}</div><div style="font-size:13px;margin-top:2px">${a.note||'—'}</div><div class="meta">${fmtDate(a.created_at)}</div></div></div>`).join(''));
+        activities.map(a => `<div class="activity-item" style="position:relative"><div class="activity-dot" style="${a.type==='betaling'?'background:#a5b4fc':''}"></div><div style="flex:1"><div class="activity-type">${activityIcons[a.type]||'•'} ${a.type}</div><div style="font-size:13px;margin-top:2px">${a.note||'—'}</div><div class="meta">${fmtDate(a.created_at)}</div></div><button onclick="deleteActivity('${a.id}');openPanel('${id}')" title="Slett" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:4px;opacity:.4;transition:all .2s" onmouseenter="this.style.opacity='1';this.style.color='#ef4444'" onmouseleave="this.style.opacity='.4';this.style.color='var(--muted)'">&times;</button></div>`).join(''));
     });
   }
 }
@@ -1853,6 +1854,11 @@ async function saveActivity() {
   await api('/api/activities', 'POST', payload);
   closeModal();
   if (activePanelId) openPanel(activePanelId);
+}
+
+async function deleteActivity(id) {
+  await api(`/api/activities/${id}`, 'DELETE');
+  render();
 }
 
 async function deleteContact(id) {
