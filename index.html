@@ -1021,7 +1021,7 @@ function _renderContactsPage() {
       <table>
         <thead><tr>
           <th style="width:36px;padding-left:14px"><input type="checkbox" id="select-all-cb" onchange="toggleAllContacts(this.checked)" style="accent-color:var(--green);cursor:pointer"></th>
-          <th>Navn</th><th>Firma</th><th>Kategori</th><th>By</th><th>Interesse</th><th>Status</th><th>Oppfølging</th><th></th>
+          <th>Navn</th><th>Firma</th><th>Kategori</th><th>By</th><th>Interesse</th><th>Status</th><th>Oppfølging</th><th>Notat</th><th></th>
         </tr></thead>
         <tbody>
           ${page.map(c => {
@@ -1044,6 +1044,7 @@ function _renderContactsPage() {
                 ${STATUS_CYCLE.map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${s}</option>`).join('')}
               </select></td>
               <td onclick="event.stopPropagation()">${fdDisplay}</td>
+              <td onclick="event.stopPropagation()"><span onclick="quickNote('${c.id}',\`${(c.notes||'').replace(/`/g,'\\`').replace(/\\/g,'\\\\')}\`)" style="cursor:pointer;font-size:11px;color:${c.notes?'var(--text2)':'var(--muted)'};max-width:150px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.notes?c.notes:'Legg til notat'}">${c.notes ? '📝 '+c.notes.substring(0,40) : '+ notat'}</span></td>
               <td onclick="event.stopPropagation()"><a href="https://www.google.com/search?q=${encodeURIComponent([c.name, c.company && c.company!==c.name ? c.company : '', c.city||''].filter(Boolean).join(' '))}" target="_blank" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;white-space:nowrap" title="Søk på ${c.name} i Google">🔍 Google</a></td>
             </tr>`;}).join('')}
         </tbody>
@@ -2793,7 +2794,7 @@ async function renderCallQueue() {
               ${c.city ? `<span>${c.city}</span>` : ''}
               ${c.phone ? `<span style="color:var(--text2)">${c.phone}</span>` : '<span style="color:var(--danger)">Ingen telefon</span>'}
             </div>
-            ${c.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.notes.substring(0,100)}</div>` : ''}
+            <div onclick="event.stopPropagation();quickNote('${c.id}',\`${(c.notes||'').replace(/`/g,'\\`').replace(/\\/g,'\\\\')}\`)" style="font-size:11px;color:${c.notes?'var(--text2)':'var(--muted)'};margin-top:4px;max-width:500px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.notes||'Legg til notat'}">${c.notes ? '📝 '+c.notes.substring(0,100) : '+ notat'}</div>
           </div>
           <div style="display:flex;gap:8px;flex-shrink:0" onclick="event.stopPropagation()">
             <a href="https://www.google.com/search?q=${encodeURIComponent([c.name, c.company && c.company!==c.name ? c.company : '', c.city||''].filter(Boolean).join(' '))}" target="_blank" class="btn btn-ghost btn-sm" style="padding:8px 10px;font-size:14px;text-decoration:none" title="Søk i Google">🔍</a>
@@ -2921,6 +2922,30 @@ async function quickFollowup(id, current) {
     if (idx >= 0) _allContacts[idx].followup_date = date.trim() || null;
     _renderContactsPage();
     toast(date.trim() ? `Oppfølging satt: ${date.trim()}` : 'Oppfølging fjernet');
+  }
+}
+
+async function quickNoteByName(name) {
+  const lookup = await api(`/api/contacts/lookup-by-name?name=${encodeURIComponent(name)}`);
+  if (!lookup || !lookup.found) { toast('Fant ikke kontakten i CRM'); return; }
+  const note = prompt('Notat:', lookup.notes || '');
+  if (note === null) return;
+  const res = await api(`/api/contacts/${lookup.id}`, 'PATCH', { notes: note.trim() || null });
+  if (res) { toast(note.trim() ? 'Notat lagret' : 'Notat fjernet'); render(); }
+}
+
+async function quickNote(id, current) {
+  const note = prompt('Notat:', current || '');
+  if (note === null) return;
+  const res = await api(`/api/contacts/${id}`, 'PATCH', { notes: note.trim() || null });
+  if (res) {
+    const idx = _allContacts.findIndex(c => c.id === id);
+    if (idx >= 0) _allContacts[idx].notes = note.trim() || null;
+    if (currentView === 'contacts') _renderContactsPage();
+    else if (currentView === 'callqueue') renderCallQueue();
+    else render();
+    if (activePanelId === id) openPanel(id);
+    toast(note.trim() ? 'Notat lagret' : 'Notat fjernet');
   }
 }
 
@@ -3308,6 +3333,7 @@ async function renderLeadRapporter() {
                     <div style="font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px">${l.name} <span style="font-size:11px;color:var(--muted);font-weight:400">${l.city || ''}</span> <a href="https://www.google.com/search?q=${encodeURIComponent(l.name + ' ' + (l.city || ''))}" target="_blank" rel="noopener" title="Søk på Google" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;background:rgba(66,133,244,.1);color:#4285f4;font-size:12px;text-decoration:none;flex-shrink:0;transition:background .2s" onmouseenter="this.style.background='rgba(66,133,244,.25)'" onmouseleave="this.style.background='rgba(66,133,244,.1)'">G</a></div>
                     <div style="font-size:11px;color:var(--muted);margin-top:2px">${catIcons[l.category]||''} ${catLabels[l.category]||l.category} ${l.phone ? '· 📞 '+l.phone : ''} ${l.rating ? '· ⭐ '+l.rating : ''}</div>
                     <div style="font-size:11px;color:var(--green);margin-top:4px;font-weight:500">💡 ${l.strategy}</div>
+                    <div onclick="quickNoteByName('${l.name.replace(/'/g,"\\'")}')" style="font-size:11px;color:var(--muted);margin-top:4px;cursor:pointer;opacity:.7;transition:opacity .2s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.7'">📝 Legg til notat</div>
                   </div>
                 </div>`).join('')}
             </div>` : ''}

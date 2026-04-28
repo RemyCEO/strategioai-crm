@@ -1378,6 +1378,16 @@ def delete_contact(id: str):
         cur.execute("DELETE FROM contacts WHERE id=%s", (id,))
     return {"ok": True}
 
+@app.get("/api/contacts/lookup-by-name")
+def lookup_by_name(name: str):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, notes FROM contacts WHERE LOWER(name)=LOWER(%s) LIMIT 1", (name,))
+        row = cur.fetchone()
+    if not row:
+        return {"found": False}
+    return {"found": True, "id": row["id"], "name": row["name"], "notes": row["notes"]}
+
 
 # --- Deals ---
 
