@@ -898,7 +898,7 @@ async function renderDashboard() {
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
       <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-bottom:14px">Siste aktiviteter</div>
       ${activities.map(a => `
-        <div class="activity-item" style="position:relative;cursor:pointer" onclick="${a.contact_id ? `showView('contacts');setTimeout(()=>openPanel('${a.contact_id}'),300)` : ''}">
+        <div class="activity-item" style="position:relative;cursor:pointer" onclick="${a.contact_id ? `openPanel('${a.contact_id}')` : ''}">
           <div class="activity-dot"></div>
           <div style="flex:1">
             <div style="font-size:13px;font-weight:500">${a.contact_name || '—'} <span class="activity-type">${activityIcons[a.type]||'•'} ${a.type}</span></div>
