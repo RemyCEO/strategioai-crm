@@ -1064,7 +1064,7 @@ function _renderContactsPage() {
       <table>
         <thead><tr>
           <th style="width:36px;padding-left:14px"><input type="checkbox" id="select-all-cb" onchange="toggleAllContacts(this.checked)" style="accent-color:var(--green);cursor:pointer"></th>
-          <th>Navn</th><th>Firma</th><th>Kategori</th><th>By</th><th>Interesse</th><th>Status</th><th>Oppfølging</th><th>Notat</th><th></th>
+          <th>Navn</th><th>Firma</th><th>Telefon</th><th>Kategori</th><th>By</th><th>Interesse</th><th>Status</th><th>Oppfølging</th><th>Notat</th><th></th>
         </tr></thead>
         <tbody>
           ${page.map(c => {
@@ -1080,6 +1080,7 @@ function _renderContactsPage() {
               <td style="padding-left:14px" onclick="event.stopPropagation()"><input type="checkbox" class="contact-cb" value="${c.id}" onchange="toggleContactSelect('${c.id}',this.checked)" ${_selectedContacts.has(c.id)?'checked':''} style="accent-color:var(--green);cursor:pointer"></td>
               <td><strong>${c.name}</strong>${c.call_queue ? ' <span title="I ringekøen" style="font-size:11px">📞</span>' : ''}</td>
               <td style="white-space:nowrap">${c.company || '—'} <span onclick="event.stopPropagation();toggleCallQueue('${c.id}',${!c.call_queue})" style="cursor:pointer;font-size:11px;opacity:${c.call_queue?'1':'.4'}" title="${c.call_queue?'Fjern fra ringekø':'Legg i ringekø'}">${c.call_queue?'✅':'📞'}</span></td>
+              <td style="white-space:nowrap;font-size:12px">${c.phone ? `<a href="tel:${c.phone}" onclick="event.stopPropagation()" style="color:var(--green);text-decoration:none;font-weight:500" title="Ring ${c.phone}">📞 ${c.phone}</a>` : '<span style="color:var(--muted)">—</span>'}</td>
               <td>${c.category ? `<span class="cat-badge" style="cursor:pointer" onclick="event.stopPropagation();contactCategoryFilter='${c.category}';renderContacts(true)">${CATEGORIES[c.category] || c.category}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
               <td style="font-size:12px;color:var(--muted)">${c.city || '—'}</td>
               <td>${c.interest_level === 'hot' ? '<span style="color:#ef4444;font-weight:700">🔥</span>' : c.interest_level === 'warm' ? '<span style="color:#f59e0b">🟡</span>' : c.interest_level === 'cold' ? '<span style="color:#60a5fa">❄️</span>' : '<span style="color:var(--muted)">—</span>'}</td>
