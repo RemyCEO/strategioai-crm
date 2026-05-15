@@ -2086,91 +2086,101 @@ async def stripe_webhook(request: Request):
         import json
         event = json.loads(payload)
 
-    etype = event["type"]
-    if etype in ("payment_intent.succeeded", "charge.succeeded"):
-        obj = event["data"]["object"]
-        email = None
-        if etype == "charge.succeeded":
-            email = obj.get("billing_details", {}).get("email") or obj.get("receipt_email")
-        elif etype == "payment_intent.succeeded":
-            email = obj.get("receipt_email")
-            if not email:
-                charges = stripe.Charge.list(payment_intent=obj["id"], limit=1)
-                if charges.data:
-                    email = charges.data[0].get("billing_details", {}).get("email")
-        if email:
-            with get_conn() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT id, name, source, status FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
-                contact = cur.fetchone()
-                if contact:
-                    contact = dict(contact)
-                    amount = (obj.get("amount") or obj.get("amount_received") or 0) / 100
-                    currency = (obj.get("currency") or "nok").upper()
-                    now = datetime.now(timezone.utc).isoformat()
-                    cur.execute(
-                        "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                        (str(uuid.uuid4()), contact["id"], None, "betaling",
-                         f"Stripe-betaling mottatt: {amount:,.0f} {currency}", now)
-                    )
-                    if contact.get("status") not in ("kunde", "aktiv"):
-                        cur.execute("UPDATE contacts SET status='kunde', updated_at=%s WHERE id=%s", (now, contact["id"]))
-                    await telegram(f"Ny betaling via Stripe!\n<b>{contact['name']}</b>\nBeløp: {amount:,.0f} {currency}")
-
-    elif etype == "customer.created":
-        obj = event["data"]["object"]
-        email = (obj.get("email") or "").lower()
-        if email:
-            with get_conn() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT id FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email,))
-                if not cur.fetchone():
-                    new_id = str(uuid.uuid4())
-                    now = datetime.now(timezone.utc).isoformat()
-                    cur.execute(
-                        "INSERT INTO contacts (id, name, company, email, phone, source, status, notes, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (new_id, obj.get("name") or email, None, obj.get("email"), obj.get("phone"),
-                         "stripe", "lead", f"Stripe ID: {obj['id']}", now, now)
-                    )
-                    await telegram(f"Ny Stripe-kunde importert til CRM!\n<b>{obj.get('name') or email}</b>")
-
-    elif etype == "customer.subscription.deleted":
-        customer_id = event["data"]["object"].get("customer")
-        if customer_id:
-            cust = stripe.Customer.retrieve(customer_id)
-            email = cust.email if hasattr(cust, 'email') else None
+    etype = event.get("type", "")
+    try:
+        if etype in ("payment_intent.succeeded", "charge.succeeded"):
+            obj = event["data"]["object"]
+            email = None
+            if etype == "charge.succeeded":
+                bd = obj.get("billing_details") or {}
+                email = (bd.get("email") if isinstance(bd, dict) else getattr(bd, "email", None)) or obj.get("receipt_email")
+            elif etype == "payment_intent.succeeded":
+                email = obj.get("receipt_email")
+                if not email:
+                    try:
+                        charges = stripe.Charge.list(payment_intent=obj["id"], limit=1)
+                        if charges.data:
+                            c = charges.data[0]
+                            bd = getattr(c, "billing_details", None)
+                            email = getattr(bd, "email", None) if bd else None
+                    except Exception:
+                        pass
             if email:
                 with get_conn() as conn:
                     cur = conn.cursor()
-                    cur.execute("SELECT id FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
-                    row = cur.fetchone()
-                    if row:
+                    cur.execute("SELECT id, name, source, status FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
+                    contact = cur.fetchone()
+                    if contact:
+                        contact = dict(contact)
+                        amount = (obj.get("amount") or obj.get("amount_received") or 0) / 100
+                        currency = (obj.get("currency") or "nok").upper()
                         now = datetime.now(timezone.utc).isoformat()
                         cur.execute(
                             "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                            (str(uuid.uuid4()), row["id"], None, "abonnement", "Stripe-abonnement kansellert", now)
+                            (str(uuid.uuid4()), contact["id"], None, "betaling",
+                             f"Stripe-betaling mottatt: {amount:,.0f} {currency}", now)
                         )
+                        if contact.get("status") not in ("kunde", "aktiv"):
+                            cur.execute("UPDATE contacts SET status='kunde', updated_at=%s WHERE id=%s", (now, contact["id"]))
+                        await telegram(f"Ny betaling via Stripe!\n<b>{contact['name']}</b>\nBeløp: {amount:,.0f} {currency}")
 
-    elif etype == "invoice.payment_failed":
-        obj = event["data"]["object"]
-        customer_id = obj.get("customer")
-        amount = (obj.get("amount_due") or 0) / 100
-        currency = (obj.get("currency") or "nok").upper()
-        if customer_id:
-            cust = stripe.Customer.retrieve(customer_id)
-            email = cust.email if hasattr(cust, 'email') else None
+        elif etype == "customer.created":
+            obj = event["data"]["object"]
+            email = (obj.get("email") or "").lower()
             if email:
                 with get_conn() as conn:
                     cur = conn.cursor()
-                    cur.execute("SELECT id, name FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
-                    row = cur.fetchone()
-                    if row:
+                    cur.execute("SELECT id FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email,))
+                    if not cur.fetchone():
+                        new_id = str(uuid.uuid4())
                         now = datetime.now(timezone.utc).isoformat()
                         cur.execute(
-                            "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                            (str(uuid.uuid4()), row["id"], None, "betaling", f"Stripe-betaling feilet: {amount:,.0f} {currency}", now)
+                            "INSERT INTO contacts (id, name, company, email, phone, source, status, notes, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (new_id, obj.get("name") or email, None, obj.get("email"), obj.get("phone"),
+                             "stripe", "lead", f"Stripe ID: {obj['id']}", now, now)
                         )
-                        await telegram(f"⚠️ Betaling feilet!\n<b>{row['name']}</b>\nBeløp: {amount:,.0f} {currency}")
+                        await telegram(f"Ny Stripe-kunde importert til CRM!\n<b>{obj.get('name') or email}</b>")
+
+        elif etype == "customer.subscription.deleted":
+            customer_id = event["data"]["object"].get("customer")
+            if customer_id:
+                cust = stripe.Customer.retrieve(customer_id)
+                email = cust.email if hasattr(cust, 'email') else None
+                if email:
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT id FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
+                        row = cur.fetchone()
+                        if row:
+                            now = datetime.now(timezone.utc).isoformat()
+                            cur.execute(
+                                "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                                (str(uuid.uuid4()), row["id"], None, "abonnement", "Stripe-abonnement kansellert", now)
+                            )
+
+        elif etype == "invoice.payment_failed":
+            obj = event["data"]["object"]
+            customer_id = obj.get("customer")
+            amount = (obj.get("amount_due") or 0) / 100
+            currency = (obj.get("currency") or "nok").upper()
+            if customer_id:
+                cust = stripe.Customer.retrieve(customer_id)
+                email = cust.email if hasattr(cust, 'email') else None
+                if email:
+                    with get_conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT id, name FROM contacts WHERE LOWER(email)=%s LIMIT 1", (email.lower(),))
+                        row = cur.fetchone()
+                        if row:
+                            now = datetime.now(timezone.utc).isoformat()
+                            cur.execute(
+                                "INSERT INTO activities (id, contact_id, deal_id, type, note, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                                (str(uuid.uuid4()), row["id"], None, "betaling", f"Stripe-betaling feilet: {amount:,.0f} {currency}", now)
+                            )
+                            await telegram(f"⚠️ Betaling feilet!\n<b>{row['name']}</b>\nBeløp: {amount:,.0f} {currency}")
+
+    except Exception as e:
+        print(f"[Stripe webhook] Feil ved behandling av {etype}: {e}")
 
     _stripe_cache.clear()
     return {"ok": True}
